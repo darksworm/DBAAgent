@@ -56,12 +56,17 @@ docker compose run --rm app \
   -O listings.json
 ```
 
-4. **Web UI (FastAPI + HTMX)**
+4. **Web UI (React + FastAPI)**
 
-   The UI reads from Postgres (fallback to `listings.json` if DB is unavailable).
+   The API runs on port 8000 and the React frontend on port 5173.
 
-   - The app now starts automatically with `docker compose up -d` and listens on port 8000.
-   - Open http://localhost:8000 and use the form to filter (and start scrapes).
+   - Start all services:
+
+   ```bash
+   docker compose up -d
+   ```
+
+   - Open http://localhost:5173 to use the React interface. It fetches listings from the API at http://localhost:8000.
    - Optionally ingest the latest `listings.json` into Postgres:
 
    ```bash
