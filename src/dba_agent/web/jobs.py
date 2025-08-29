@@ -234,3 +234,10 @@ class JobManager:
             jobs = list(self._jobs.values())
         jobs.sort(key=lambda j: j.started_at, reverse=True)
         return jobs[:limit]
+
+    def is_schedule_running(self, schedule_id: int) -> bool:
+        with self._lock:
+            for j in self._jobs.values():
+                if j.schedule_id == schedule_id and j.status in ("starting", "running"):
+                    return True
+        return False

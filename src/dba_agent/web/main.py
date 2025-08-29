@@ -76,6 +76,8 @@ def on_startup() -> None:
                     due = schedules_due()
                     for s in due:
                         cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
+                        if jobs.is_schedule_running(int(s["id"])):
+                            continue
                         extra_settings: dict[str, object] = {}
                         if s.get("concurrency"):
                             c = int(s["concurrency"]) or 0
@@ -368,6 +370,11 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
     for s in schedule_list():
         if int(s["id"]) == int(sid):
             cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
+            if jobs.is_schedule_running(int(sid)):
+                return templates.TemplateResponse(
+                    "partials/schedules.html",
+                    {"request": request, "schedules": schedule_list()},
+                )
             extra_settings: dict[str, object] = {}
             if s.get("concurrency"):
                 c = int(s["concurrency"]) or 0
