@@ -30,10 +30,10 @@
       <button type="submit">Start</button>
     </form>
     <div id="scrape-status"></div>
-    <div id="events" hx-ext="sse" hx-sse="connect:/events, trigger:new_results"></div>
+    <div id="events" hx-ext="sse" sse-connect="/events"></div>
 
     <h3>Search</h3>
-    <form hx-get="/search" hx-target="#results" hx-swap="innerHTML" hx-trigger="submit, new_results from:#events">
+    <form hx-get="/search" hx-target="#results" hx-swap="innerHTML" hx-trigger="submit, sse:new_results from:#events">
       <label>Keywords (include)
         <input name="q" type="text" placeholder="e.g. batavus carbon" />
       </label>
