@@ -75,24 +75,39 @@ def search(
     qx: Optional[str] = Query(None, description="Space-separated exclude keywords"),
     loc: Optional[str] = Query(None, description="Space-separated location include keywords"),
     locx: Optional[str] = Query(None, description="Space-separated location exclude keywords"),
-    min_price: Optional[float] = Query(None),
-    max_price: Optional[float] = Query(None),
-    min_images: Optional[int] = Query(None),
-    max_age_days: Optional[int] = Query(None),
+    min_price: Optional[str] = Query(None),
+    max_price: Optional[str] = Query(None),
+    min_images: Optional[str] = Query(None),
+    max_age_days: Optional[str] = Query(None),
 ) -> HTMLResponse:
+    # Parse numeric inputs defensively to handle empty strings from forms
+    def _f(s: Optional[str]) -> Optional[float]:
+        try:
+            return float(s) if s not in (None, "") else None
+        except Exception:
+            return None
+    def _i(s: Optional[str]) -> Optional[int]:
+        try:
+            return int(s) if s not in (None, "") else None
+        except Exception:
+            return None
+    min_price_v = _f(min_price)
+    max_price_v = _f(max_price)
+    min_images_v = _i(min_images)
+    max_age_days_v = _i(max_age_days)
     include = (q or "").split()
     exclude = (qx or "").split()
     loc_inc = (loc or "").split()
     loc_exc = (locx or "").split()
     cfg = FilterConfig(
-        min_price=min_price,
-        max_price=max_price,
+        min_price=min_price_v,
+        max_price=max_price_v,
         include_keywords=include,
         exclude_keywords=exclude,
         location_includes=loc_inc,
         location_excludes=loc_exc,
-        min_images=min_images,
-        max_age_days=max_age_days,
+        min_images=min_images_v,
+        max_age_days=max_age_days_v,
     )
     engine = FilterEngine(cfg)
     listings: List[Listing]
@@ -102,10 +117,10 @@ def search(
             exclude_keywords=exclude,
             location_includes=loc_inc,
             location_excludes=loc_exc,
-            min_images=min_images,
-            max_age_days=max_age_days,
-            min_price=min_price,
-            max_price=max_price,
+            min_images=min_images_v,
+            max_age_days=max_age_days_v,
+            min_price=min_price_v,
+            max_price=max_price_v,
             limit=100,
         )
     except Exception:
