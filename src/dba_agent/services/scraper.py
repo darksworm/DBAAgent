@@ -22,6 +22,8 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
         "DOWNLOAD_DELAY": 0.5,
         "AUTOTHROTTLE_ENABLED": True,
         "RETRY_TIMES": 3,
+        # Ensure Pydantic models are converted to JSON-serializable dicts
+        "ITEM_PIPELINES": {"dba_agent.utils.pipelines.JsonifyPydantic": 100},
     }
 
     def __init__(
@@ -54,7 +56,7 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
                 location=card.css("span.location::text").get(),
                 timestamp=datetime.now(timezone.utc),
             )
-            yield item.model_dump(mode="json")
+            yield item
 
         # Fallback: parse JSON-LD ItemList if present (useful for sites like dba.dk)
         if not yielded:
@@ -112,9 +114,13 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
                             location=None,
                             timestamp=datetime.now(timezone.utc),
                         )
-                        yield item.model_dump(mode="json")
+                        yield item
 
-        next_page = response.css("a.next::attr(href)").get()
+        # DBA pagination exposes <a rel="next" href="?page=2&q=...">
+        next_page = (
+            response.css('nav[aria-label="Pagination"] a[rel="next"]::attr(href)').get()
+            or response.css('a[rel="next"]::attr(href)').get()
+        )
         if next_page:
             yield response.follow(next_page, callback=self.parse)
 
