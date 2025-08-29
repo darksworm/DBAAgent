@@ -4,6 +4,8 @@ from scrapy.http import HtmlResponse
 
 from dba_agent.services import ListingSpider
 from dba_agent.models import Listing
+import dba_agent.services.scraper as scraper
+import pytest
 
 
 HTML = """
@@ -22,7 +24,12 @@ HTML = """
 """
 
 
-def test_listing_spider_parses_listing() -> None:
+def test_listing_spider_parses_listing(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_download(url: str) -> bytes | None:
+        return b"imgbytes"
+
+    monkeypatch.setattr(scraper, "download_image", fake_download)
+
     spider = ListingSpider(start_urls=["http://example.com"])
     response = HtmlResponse(url="http://example.com", body=HTML, encoding="utf-8")
     results = list(spider.parse(response))
@@ -32,5 +39,5 @@ def test_listing_spider_parses_listing() -> None:
     assert isinstance(listing, Listing)
     assert listing.title == "Widget"
     assert listing.price == 9.99
-    assert [str(url) for url in listing.image_urls] == ["http://example.com/img1.jpg"]
+    assert listing.images == [b"imgbytes"]
     assert listing.location == "Springfield"
