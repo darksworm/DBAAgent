@@ -1,0 +1,20 @@
+{% if since %}
+  <input id="recent-since" name="since" type="hidden" value="{{ since }}" hx-swap-oob="true" />
+{% endif %}
+{% for r in cards %}
+  {% set l = r.item %}
+  <div class="card">
+    {% if r.image_src %}
+      <img src="{{ r.image_src }}" alt="" />
+    {% endif %}
+    <div class="title">
+      {% if l.url %}
+        <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a>
+      {% else %}
+        {{ l.title }}
+      {% endif %}
+    </div>
+    <div class="price">{{ '%.2f'|format(l.price) }} DKK</div>
+  </div>
+{% endfor %}
+

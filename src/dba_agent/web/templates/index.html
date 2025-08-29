@@ -56,6 +56,13 @@
     <div hx-get="/scrape/jobs" hx-trigger="load, every 1s" hx-target="#scrape-status" hx-swap="innerHTML" style="display:none"></div>
 
     <div id="schedules-panel" hx-get="/schedules" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
+
+    <h3>Latest Results</h3>
+    <input id="recent-since" name="since" type="hidden" value="" />
+    <div id="recent-list" class="grid"></div>
+    <!-- Initial load fills recent list; SSE & poll prepend new items since last timestamp -->
+    <div hx-get="/recent" hx-trigger="load" hx-target="#recent-list" hx-swap="innerHTML" style="display:none"></div>
+    <div hx-get="/recent" hx-include="#recent-since" hx-trigger="sse:new_results from:#events, every 5s" hx-target="#recent-list" hx-swap="afterbegin" style="display:none"></div>
     <div id="events" hx-ext="sse" sse-connect="/events"></div>
 
     <h3>Search</h3>

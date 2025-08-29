@@ -20,6 +20,7 @@ from dba_agent.repositories.postgres import (
     schedule_toggle,
     schedule_mark_ran,
     schedules_due,
+    recent_listings,
 )
 from .jobs import JobManager
 from .events import hub
@@ -309,3 +310,29 @@ async def sse_events() -> StreamingResponse:
 
     headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+@app.get("/recent", response_class=HTMLResponse)
+def recent(request: Request, since: Optional[str] = Query(None), limit: Optional[int] = Query(12)) -> HTMLResponse:
+    from datetime import datetime
+    since_dt: Optional[datetime] = None
+    if since:
+        try:
+            s = since.rstrip("Z")
+            since_dt = datetime.fromisoformat(s)
+        except Exception:
+            since_dt = None
+    items = recent_listings(since=since_dt, limit=int(limit or 12))
+    import base64
+    cards = []
+    latest_ts = since or ""
+    for l in items:
+        img_src = None
+        if l.images:
+            img_src = f"data:image/jpeg;base64,{base64.b64encode(l.images[0]).decode('ascii')}"
+        ts_iso = l.timestamp.isoformat()
+        if not latest_ts or ts_iso > latest_ts:
+            latest_ts = ts_iso
+        cards.append({"item": l, "image_src": img_src})
+    return templates.TemplateResponse(
+        "partials/recent.html",
+        {"request": request, "cards": cards, "since": latest_ts},
+    )

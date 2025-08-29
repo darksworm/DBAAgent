@@ -220,6 +220,41 @@ def search(
     return results
 
 
+def recent_listings(since: Optional[datetime] = None, limit: int = 20) -> List[Listing]:
+    where = []
+    params: List[object] = []
+    if since is not None:
+        where.append("l.ts > %s")
+        params.append(since)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    sql = (
+        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image "
+        "FROM listings l "
+        "LEFT JOIN LATERAL (SELECT data FROM listing_images WHERE listing_id=l.id ORDER BY idx ASC LIMIT 1) li ON TRUE "
+        + where_sql
+        + " ORDER BY l.ts DESC LIMIT %s"
+    )
+    params.append(limit)
+    results: List[Listing] = []
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            for _id, title, price, desc, location, url, ts, first_image in cur.fetchall():
+                images_list: List[bytes] = [bytes(first_image)] if first_image is not None else []
+                results.append(
+                    Listing(
+                        title=title,
+                        price=float(price),
+                        description=desc,
+                        images=images_list,
+                        location=location,
+                        url=url,
+                        timestamp=ts,
+                    )
+                )
+    return results
+
+
 # Scheduling helpers
 def schedule_create(
     name: str,
