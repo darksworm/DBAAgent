@@ -39,6 +39,7 @@ def init_schema() -> None:
                   description TEXT,
                   location TEXT,
                   url TEXT,
+                  image_urls JSONB,
                   ts TIMESTAMPTZ NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS listing_images (
@@ -65,6 +66,7 @@ def init_schema() -> None:
             )
             # Backfill column if migrating
             cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS url TEXT;")
+            cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS image_urls JSONB;")
             cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS last_pub_ts TIMESTAMPTZ;")
         conn.commit()
 
@@ -78,7 +80,7 @@ def listing_key(l: Listing) -> str:
 
 def upsert_many(items: Iterable[Listing]) -> int:
     # De-duplicate by key to avoid ON CONFLICT affecting the same row twice
-    rows_by_key: Dict[str, Tuple[str, str, float, Optional[str], Optional[str], Optional[str], object]] = {}
+    rows_by_key: Dict[str, Tuple[str, str, float, Optional[str], Optional[str], Optional[str], object, str]] = {}
     images_by_key: Dict[str, List[bytes]] = {}
     for l in items:
         k = listing_key(l)
@@ -90,6 +92,7 @@ def upsert_many(items: Iterable[Listing]) -> int:
             l.location,
             getattr(l, "url", None),
             l.timestamp,
+            json.dumps(getattr(l, "image_urls", []) or []),
         )
         images_by_key[k] = list(getattr(l, "images", []) or [])
     rows = list(rows_by_key.values())
@@ -101,7 +104,7 @@ def upsert_many(items: Iterable[Listing]) -> int:
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO listings (key, title, price, description, location, url, ts)
+                INSERT INTO listings (key, title, price, description, location, url, ts, image_urls)
                 VALUES %s
                 ON CONFLICT (key) DO UPDATE SET
                   title = EXCLUDED.title,
@@ -109,7 +112,8 @@ def upsert_many(items: Iterable[Listing]) -> int:
                   description = EXCLUDED.description,
                   location = EXCLUDED.location,
                   url = EXCLUDED.url,
-                  ts = EXCLUDED.ts
+                  ts = EXCLUDED.ts,
+                  image_urls = EXCLUDED.image_urls
                 """,
                 rows,
                 page_size=200,
@@ -191,12 +195,12 @@ def search(
         params.append(cutoff)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     sql = (
-        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image "
+        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image, COALESCE(jsonb_array_length(l.image_urls),0) as url_cnt "
         "FROM listings l "
         "LEFT JOIN LATERAL (SELECT data FROM listing_images WHERE listing_id=l.id ORDER BY idx ASC LIMIT 1) li ON TRUE "
         "LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM listing_images WHERE listing_id=l.id) ic ON TRUE "
         + where_sql.replace("WHERE ", "WHERE ")
-        + (" AND ic.cnt >= %s" if min_images is not None else "")
+        + (" AND COALESCE(jsonb_array_length(l.image_urls),0) >= %s" if min_images is not None else "")
         + " ORDER BY l.ts DESC LIMIT %s"
     )
     if min_images is not None:
@@ -206,7 +210,7 @@ def search(
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            for _id, title, price, desc, location, url, ts, first_image in cur.fetchall():
+            for _id, title, price, desc, location, url, ts, first_image, _url_cnt in cur.fetchall():
                 images_list: List[bytes] = [bytes(first_image)] if first_image is not None else []
                 results.append(
                     Listing(
@@ -230,7 +234,7 @@ def recent_listings(since: Optional[datetime] = None, limit: int = 20) -> List[L
         params.append(since)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     sql = (
-        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image "
+        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image, COALESCE(jsonb_array_length(l.image_urls),0) as url_cnt "
         "FROM listings l "
         "LEFT JOIN LATERAL (SELECT data FROM listing_images WHERE listing_id=l.id ORDER BY idx ASC LIMIT 1) li ON TRUE "
         + where_sql
@@ -241,7 +245,7 @@ def recent_listings(since: Optional[datetime] = None, limit: int = 20) -> List[L
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            for _id, title, price, desc, location, url, ts, first_image in cur.fetchall():
+            for _id, title, price, desc, location, url, ts, first_image, _url_cnt in cur.fetchall():
                 images_list: List[bytes] = [bytes(first_image)] if first_image is not None else []
                 results.append(
                     Listing(

@@ -27,3 +27,15 @@ services:
 
 volumes:
   pgdata:
+
+  image-worker:
+    build: .
+    command: python -m dba_agent.workers.image_downloader
+    restart: unless-stopped
+    environment:
+      PYTHONPATH: /app/src
+      DB_URL: postgresql://dba:dba@db:5432/dba
+    depends_on:
+      - db
+    volumes:
+      - .:/app

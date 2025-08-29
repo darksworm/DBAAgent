@@ -15,6 +15,7 @@ class Listing(BaseModel):
     price: float
     description: Optional[str] = None
     images: List[bytes] = Field(default_factory=list)
+    image_urls: List[str] = Field(default_factory=list)
     location: Optional[str] = None
     url: Optional[str] = None
     timestamp: datetime
