@@ -100,11 +100,14 @@ class ListingSpider(scrapy.Spider):
 
         seen_older = False
         seen_known_boundary = False
-        for card in response.css("div.listing"):
+        for card in response.css("div.listing, article.sf-search-ad, article:has(.sf-search-ad-link)"):
             yielded = True
             image_urls = card.css("img::attr(src)").getall()
             href = card.css("a::attr(href)").get()
             url = response.urljoin(href) if href else None
+            classes = (card.attrib.get("class") or "")
+            badge_text = " ".join(card.css(".badge--info, .badge--positionTL, span::text").getall())
+            is_ad = ("sf-search-ad" in classes) or ("Betalt placering" in badge_text)
             item = Listing(
                 title=card.css("h2::text").get(default="").strip(),
                 price=float(card.css("span.price::text").re_first(r"[\d.]+") or 0.0),
@@ -114,8 +117,9 @@ class ListingSpider(scrapy.Spider):
                 location=card.css("span.location::text").get(),
                 url=url,
                 timestamp=datetime.now(timezone.utc),
+                is_ad=is_ad,
             )
-            if self._stop_before and item.timestamp < self._stop_before:
+            if self._stop_before and (item.timestamp < self._stop_before) and (not is_ad):
                 seen_older = True
                 continue
             if self._stop_on_known and self._db_cursor is not None:
@@ -124,7 +128,7 @@ class ListingSpider(scrapy.Spider):
                     if k not in self._known_cache:
                         self._db_cursor.execute("SELECT 1 FROM listings WHERE key=%s LIMIT 1", (k,))
                         exists = self._db_cursor.fetchone() is not None
-                        if exists:
+                        if exists and (not is_ad):
                             self._known_seen += 1
                             self._known_cache.add(k)
                             seen_known_boundary = self._known_seen >= self._known_threshold
@@ -213,8 +217,9 @@ class ListingSpider(scrapy.Spider):
                             location=None,
                             url=href,
                             timestamp=ts or datetime.now(timezone.utc),
+                            is_ad=False,
                         )
-                        if self._stop_before and item.timestamp < self._stop_before:
+                        if self._stop_before and (item.timestamp < self._stop_before) and (not is_ad):
                             seen_older = True
                             continue
                         if self._stop_on_known and self._db_cursor is not None:

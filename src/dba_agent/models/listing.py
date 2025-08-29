@@ -19,3 +19,4 @@ class Listing(BaseModel):
     location: Optional[str] = None
     url: Optional[str] = None
     timestamp: datetime
+    is_ad: bool = False

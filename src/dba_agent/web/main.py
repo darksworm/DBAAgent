@@ -76,14 +76,35 @@ def on_startup() -> None:
                     due = schedules_due()
                     for s in due:
                         cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
-                        jobs.start(
-                            s["urls"],
-                            max_pages=s.get("max_pages"),
-                            newest_first=bool(s.get("newest_first", True)),
-                            stop_before_ts=cutoff,
-                            fetch_images=True,
-                            stop_on_known=True,
-                        )
+                        extra_settings: dict[str, object] = {}
+                        if s.get("concurrency"):
+                            c = int(s["concurrency"]) or 0
+                            if c > 0:
+                                extra_settings.update({
+                                    "CONCURRENT_REQUESTS": c,
+                                    "CONCURRENT_REQUESTS_PER_DOMAIN": c,
+                                    "AUTOTHROTTLE_ENABLED": False,
+                                    "DOWNLOAD_DELAY": 0,
+                                })
+                        urls = [u for u in str(s.get("urls") or "").replace(",", " ").split() if u]
+                        w = int(s.get("workers") or 0)
+                        if w and w > 1 and len(urls) > 1:
+                            n = max(1, min(w, len(urls)))
+                            size = (len(urls) + n - 1) // n
+                            shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
+                        else:
+                            shards = [" ".join(urls)] if urls else []
+                        for shard in shards:
+                            jobs.start(
+                                shard,
+                                max_pages=s.get("max_pages"),
+                                newest_first=bool(s.get("newest_first", True)),
+                                stop_before_ts=cutoff,
+                                fetch_images=False,
+                                schedule_id=int(s["id"]),
+                                stop_on_known=False,
+                                settings=extra_settings or None,
+                            )
                         schedule_mark_ran(int(s["id"]))
                 except Exception:
                     pass
@@ -219,8 +240,7 @@ def start_scrape(
     newest_first: Optional[bool] = Form(False),
     pages: Optional[str] = Form(None),
     workers: Optional[str] = Form(None),
-    concurrency: Optional[str] = Form(None),
-    fetch_images: Optional[bool] = Form(False),
+    concurrency: Optional[str] = Form(None)
 ) -> HTMLResponse:
     try:
         max_pages = int(pages) if pages else None
@@ -251,7 +271,6 @@ def start_scrape(
             max_pages=max_pages,
             newest_first=bool(newest_first),
             settings=extra_settings or None,
-            fetch_images=bool(fetch_images),
         )
     else:
         n = max(1, min(worker_count, len(urls)))
@@ -263,7 +282,6 @@ def start_scrape(
                 max_pages=max_pages,
                 newest_first=bool(newest_first),
                 settings=extra_settings or None,
-                fetch_images=bool(fetch_images),
             )
     return templates.TemplateResponse(
         "partials/scrape_jobs.html",
@@ -363,7 +381,7 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
                     max_pages=s.get("max_pages"),
                     newest_first=bool(s.get("newest_first", True)),
                     stop_before_ts=cutoff,
-                    fetch_images=True,
+                    fetch_images=False,
                     schedule_id=int(s["id"]),
                     stop_on_known=False,
                     settings=extra_settings or None,
