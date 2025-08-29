@@ -110,7 +110,7 @@ class ListingSpider(scrapy.Spider):
             is_ad = ("sf-search-ad" in classes) or ("Betalt placering" in badge_text)
             item = Listing(
                 title=card.css("h2::text").get(default="").strip(),
-                price=float(card.css("span.price::text").re_first(r"[\d.]+") or 0.0),
+                price=self._parse_price(card),
                 description=card.css("p.description::text").get(),
                 images=[],
                 image_urls=[response.urljoin(u) for u in image_urls],
@@ -269,6 +269,27 @@ class ListingSpider(scrapy.Spider):
         except Exception:
             pass
         yield item
+    def _parse_price(self, sel: scrapy.Selector) -> float:
+        """Parse a price from mixed markup, handling thousands separators.
+
+        Examples: "4.000 kr.", "12 345 kr", "899", "1.299,95"
+        """
+        try:
+            text = " ".join([t.strip() for t in sel.css("::text").getall() if t and t.strip()])
+            import re as _re
+            m = _re.search(r"(\d{1,3}(?:[\.\s]\d{3})+|\d+)(?:,(\d+))?\s*kr?\.?", text, _re.IGNORECASE)
+            if not m:
+                m = _re.search(r"(\d{1,3}(?:[\.\s]\d{3})+|\d+)(?:,(\d+))?", text)
+            if m:
+                intpart = m.group(1)
+                dec = m.group(2) or ""
+                intpart = intpart.replace(".", "").replace(" ", "")
+                num = f"{intpart}.{dec}" if dec else intpart
+                return float(num)
+        except Exception:
+            pass
+        return 0.0
+
 
 
 def download_image(url: str) -> bytes | None:
