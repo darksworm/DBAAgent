@@ -76,7 +76,7 @@
       <button type="submit">Search</button>
     </form>
     <!-- Listener that refreshes results on SSE or as periodic fallback -->
-    <div hx-get="/search" hx-include="#search-form" hx-target="#results" hx-trigger="sse:new_results from:#events, every 3s" hx-swap="innerHTML" style="display:none"></div>
+    <div hx-get="/search" hx-include="#search-form" hx-target="#results" hx-trigger="load, sse:new_results from:#events, every 3s" hx-swap="innerHTML" style="display:none"></div>
 
     <div id="results">
       {% include 'partials/results.html' %}
