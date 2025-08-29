@@ -75,7 +75,7 @@ def on_startup() -> None:
                 try:
                     due = schedules_due()
                     for s in due:
-                        cutoff = s["last_run"].isoformat() if s.get("last_run") else None
+                        cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
                         jobs.start(
                             s["urls"],
                             max_pages=s.get("max_pages"),
@@ -334,14 +334,15 @@ def schedules_toggle_view(request: Request, sid: int = Form(...), enabled: bool 
 def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
     for s in schedule_list():
         if int(s["id"]) == int(sid):
-            cutoff = s["last_run"].isoformat() if s.get("last_run") else None
+            cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
             jobs.start(
                 s["urls"],
                 max_pages=s.get("max_pages"),
                 newest_first=bool(s.get("newest_first", True)),
                 stop_before_ts=cutoff,
                 fetch_images=True,
-                stop_on_known=True,
+                schedule_id=int(s["id"]),
+                stop_on_known=False,
             )
             schedule_mark_ran(int(sid))
             break

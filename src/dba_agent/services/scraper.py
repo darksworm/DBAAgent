@@ -114,7 +114,7 @@ class ListingSpider(scrapy.Spider):
                 url=url,
                 timestamp=datetime.now(timezone.utc),
             )
-            if self._stop_before and item.timestamp <= self._stop_before:
+            if self._stop_before and item.timestamp < self._stop_before:
                 seen_older = True
                 continue
             if self._stop_on_known and self._db_cursor is not None:
@@ -212,7 +212,7 @@ class ListingSpider(scrapy.Spider):
                             url=href,
                             timestamp=ts or datetime.now(timezone.utc),
                         )
-                        if self._stop_before and item.timestamp <= self._stop_before:
+                        if self._stop_before and item.timestamp < self._stop_before:
                             seen_older = True
                             continue
                         if self._stop_on_known and self._db_cursor is not None:

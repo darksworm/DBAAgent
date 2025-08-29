@@ -58,12 +58,14 @@ def init_schema() -> None:
                   max_pages INTEGER,
                   newest_first BOOLEAN NOT NULL DEFAULT TRUE,
                   enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                  last_run TIMESTAMPTZ
+                  last_run TIMESTAMPTZ,
+                  last_pub_ts TIMESTAMPTZ
                 );
                 """
             )
             # Backfill column if migrating
             cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS url TEXT;")
+            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS last_pub_ts TIMESTAMPTZ;")
         conn.commit()
 
 
@@ -282,7 +284,7 @@ def schedule_list() -> List[dict]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run FROM scrape_schedules ORDER BY id DESC"
+                "SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run, last_pub_ts FROM scrape_schedules ORDER BY id DESC"
             )
             rows = cur.fetchall()
     out = []
@@ -297,6 +299,7 @@ def schedule_list() -> List[dict]:
                 "newest_first": bool(r[5]),
                 "enabled": bool(r[6]),
                 "last_run": r[7],
+                "last_pub_ts": r[8],
             }
         )
     return out
@@ -329,7 +332,7 @@ def schedules_due(now: Optional[datetime] = None) -> List[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run
+                SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run, last_pub_ts
                 FROM scrape_schedules
                 WHERE enabled = TRUE
                   AND (last_run IS NULL OR last_run <= %s - (cadence_minutes || ' minutes')::interval)
@@ -349,6 +352,17 @@ def schedules_due(now: Optional[datetime] = None) -> List[dict]:
                 "newest_first": bool(r[5]),
                 "enabled": bool(r[6]),
                 "last_run": r[7],
+                "last_pub_ts": r[8],
             }
         )
     return out
+
+
+def schedule_mark_pub(sid: int, ts: datetime) -> None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scrape_schedules SET last_pub_ts = GREATEST(COALESCE(last_pub_ts, '-infinity'), %s) WHERE id=%s",
+                (ts, sid),
+            )
+        conn.commit()

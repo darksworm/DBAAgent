@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from dba_agent.models import Listing
-from dba_agent.repositories.postgres import upsert_many
+from dba_agent.repositories.postgres import upsert_many, schedule_mark_pub
 from .events import hub
 from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 
@@ -32,6 +32,7 @@ class ScrapeJob:
     id: str
     start_urls: str
     outfile: Path
+    schedule_id: Optional[int] = None
     status: str = "starting"  # starting|running|stopping|completed|failed|canceled
     inserted: int = 0
     errors: int = 0
@@ -57,6 +58,7 @@ class JobManager:
         fetch_images: Optional[bool] = None,
         stop_on_known: Optional[bool] = None,
         known_threshold: Optional[int] = None,
+        schedule_id: Optional[int] = None,
     ) -> ScrapeJob:
         job_id = uuid.uuid4().hex[:8]
         outfile = Path.cwd() / f"scrape-{job_id}.jl"
@@ -64,7 +66,7 @@ class JobManager:
             parts = [p for p in start_urls.replace(',', ' ').split() if p]
             parts = [_append_query(p, {"sort": "PUBLISHED_DESC"}) for p in parts]
             start_urls = " ".join(parts)
-        job = ScrapeJob(id=job_id, start_urls=start_urls, outfile=outfile)
+        job = ScrapeJob(id=job_id, start_urls=start_urls, outfile=outfile, schedule_id=schedule_id)
         with self._lock:
             self._jobs[job_id] = job
         # Build subprocess command (JSON Lines output for incremental ingest)
@@ -117,6 +119,7 @@ class JobManager:
         buffer: List[Listing] = []
         batch_size = 20
         outfile = job.outfile
+        max_ts: Optional[float] = None
         # Wait for file to appear
         for _ in range(300):  # up to ~30s
             if outfile.exists():
@@ -148,7 +151,14 @@ class JobManager:
                         if isinstance(imgs, list) and imgs and isinstance(imgs[0], str):
                             obj = dict(obj)
                             obj["images"] = [base64.b64decode(s) for s in imgs]
-                        buffer.append(Listing(**obj))
+                        item = Listing(**obj)
+                        buffer.append(item)
+                        try:
+                            ts = item.timestamp.timestamp()
+                            if max_ts is None or ts > max_ts:
+                                max_ts = ts
+                        except Exception:
+                            pass
                     except Exception as e:  # malformed/partial JSON or validation error
                         job.errors += 1
                         job.last_error = str(e)
@@ -174,6 +184,13 @@ class JobManager:
             job.finished_at = time.time()
             # Determine final status
             code = job._proc.returncode if job._proc else 0
+            # Persist watermark for schedules
+            if job.schedule_id and max_ts:
+                try:
+                    import datetime as _dt
+                    schedule_mark_pub(int(job.schedule_id), _dt.datetime.fromtimestamp(max_ts, _dt.timezone.utc))
+                except Exception:
+                    pass
             if job.status == "stopping":
                 job.status = "canceled"
             elif code == 0 and job.errors == 0:
