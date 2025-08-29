@@ -221,7 +221,33 @@ def start_scrape(
         max_pages = int(pages) if pages else None
     except Exception:
         max_pages = None
-    job = jobs.start(start_urls, max_pages=max_pages, newest_first=bool(newest_first))
+    try:
+        worker_count = int(workers) if workers else 1
+    except Exception:
+        worker_count = 1
+    try:
+        conc = int(concurrency) if concurrency else None
+    except Exception:
+        conc = None
+
+    extra_settings = {}
+    if conc and conc > 0:
+        extra_settings.update({
+            "CONCURRENT_REQUESTS": conc,
+            "CONCURRENT_REQUESTS_PER_DOMAIN": conc,
+            "AUTOTHROTTLE_ENABLED": False,
+            "DOWNLOAD_DELAY": 0,
+        })
+
+    urls = [u for u in start_urls.replace(",", " ").split() if u]
+    if worker_count <= 1 or len(urls) <= 1:
+        jobs.start(start_urls, max_pages=max_pages, newest_first=bool(newest_first), settings=extra_settings or None)
+    else:
+        n = max(1, min(worker_count, len(urls)))
+        size = (len(urls) + n - 1) // n
+        shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
+        for shard in shards:
+            jobs.start(shard, max_pages=max_pages, newest_first=bool(newest_first), settings=extra_settings or None)
     return templates.TemplateResponse(
         "partials/scrape_jobs.html",
         {"request": request, "jobs": jobs.list_recent()},

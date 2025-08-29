@@ -60,6 +60,12 @@
       <label>Pages to crawl (optional)
         <input name="pages" type="number" min="1" placeholder="e.g. 3" />
       </label>
+      <label>Workers
+        <input name="workers" type="number" min="1" placeholder="e.g. 4" />
+      </label>
+      <label>Concurrency per worker
+        <input name="concurrency" type="number" min="1" placeholder="e.g. 16" />
+      </label>
       <button type="submit">Start</button>
     </form>
     <div id="scrape-status"></div>

@@ -53,6 +53,7 @@ class JobManager:
         max_pages: Optional[int] = None,
         newest_first: bool = False,
         stop_before_ts: Optional[str] = None,
+        settings: Optional[dict[str, object]] = None,
     ) -> ScrapeJob:
         job_id = uuid.uuid4().hex[:8]
         outfile = Path.cwd() / f"scrape-{job_id}.jl"
@@ -82,6 +83,10 @@ class JobManager:
                 "-a",
                 f"stop_before_ts={stop_before_ts}",
             ]
+        # Extra Scrapy settings from caller
+        if settings:
+            for k, v in settings.items():
+                cmd += ["-s", f"{k}={v}"]
         cmd += [
             "-o",
             str(outfile),
