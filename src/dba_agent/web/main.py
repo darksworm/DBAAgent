@@ -81,6 +81,7 @@ def on_startup() -> None:
                             max_pages=s.get("max_pages"),
                             newest_first=bool(s.get("newest_first", True)),
                             stop_before_ts=cutoff,
+                            fetch_images=True,
                         )
                         schedule_mark_ran(int(s["id"]))
                 except Exception:
@@ -216,6 +217,9 @@ def start_scrape(
     start_urls: str = Form(...),
     newest_first: Optional[bool] = Form(False),
     pages: Optional[str] = Form(None),
+    workers: Optional[str] = Form(None),
+    concurrency: Optional[str] = Form(None),
+    fetch_images: Optional[bool] = Form(False),
 ) -> HTMLResponse:
     try:
         max_pages = int(pages) if pages else None
@@ -241,13 +245,25 @@ def start_scrape(
 
     urls = [u for u in start_urls.replace(",", " ").split() if u]
     if worker_count <= 1 or len(urls) <= 1:
-        jobs.start(start_urls, max_pages=max_pages, newest_first=bool(newest_first), settings=extra_settings or None)
+        jobs.start(
+            start_urls,
+            max_pages=max_pages,
+            newest_first=bool(newest_first),
+            settings=extra_settings or None,
+            fetch_images=bool(fetch_images),
+        )
     else:
         n = max(1, min(worker_count, len(urls)))
         size = (len(urls) + n - 1) // n
         shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
         for shard in shards:
-            jobs.start(shard, max_pages=max_pages, newest_first=bool(newest_first), settings=extra_settings or None)
+            jobs.start(
+                shard,
+                max_pages=max_pages,
+                newest_first=bool(newest_first),
+                settings=extra_settings or None,
+                fetch_images=bool(fetch_images),
+            )
     return templates.TemplateResponse(
         "partials/scrape_jobs.html",
         {"request": request, "jobs": jobs.list_recent()},
@@ -323,6 +339,7 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
                 max_pages=s.get("max_pages"),
                 newest_first=bool(s.get("newest_first", True)),
                 stop_before_ts=cutoff,
+                fetch_images=True,
             )
             schedule_mark_ran(int(sid))
             break
