@@ -7,7 +7,6 @@ from typing import Iterable, Iterator, Optional
 import re
 import json
 
-import requests
 import scrapy
 from scrapy import Request
 from scrapy.http import Response
@@ -76,16 +75,11 @@ class ListingSpider(scrapy.Spider):
             image_urls = card.css("img::attr(src)").getall()
             href = card.css("a::attr(href)").get()
             url = response.urljoin(href) if href else None
-            images = [
-                data
-                for url in image_urls
-                if (data := download_image(url)) is not None
-            ]
             item = Listing(
                 title=card.css("h2::text").get(default="").strip(),
                 price=float(card.css("span.price::text").re_first(r"[\d.]+") or 0.0),
                 description=card.css("p.description::text").get(),
-                images=images,
+                images=[],
                 location=card.css("span.location::text").get(),
                 url=url,
                 timestamp=datetime.now(timezone.utc),
@@ -93,7 +87,11 @@ class ListingSpider(scrapy.Spider):
             if self._stop_before and item.timestamp <= self._stop_before:
                 seen_older = True
                 continue
-            yield item
+            first_img = image_urls[0] if image_urls else None
+            if first_img:
+                yield response.follow(first_img, callback=self._attach_image, cb_kwargs={"item": item})
+            else:
+                yield item
 
         # Fallback: parse JSON-LD ItemList if present (useful for sites like dba.dk)
         if not yielded:
@@ -145,11 +143,6 @@ class ListingSpider(scrapy.Spider):
                             image_urls = [imgs]
                         else:
                             image_urls = []
-                        images = [
-                            data
-                            for url in image_urls
-                            if (data := download_image(url)) is not None
-                        ]
 
                         # Attempt to parse publish date
                         ts = None
@@ -165,7 +158,7 @@ class ListingSpider(scrapy.Spider):
                             title=title,
                             price=price,
                             description=desc,
-                            images=images,
+                            images=[],
                             location=None,
                             url=href,
                             timestamp=ts or datetime.now(timezone.utc),
@@ -173,7 +166,11 @@ class ListingSpider(scrapy.Spider):
                         if self._stop_before and item.timestamp <= self._stop_before:
                             seen_older = True
                             continue
-                        yield item
+                        first_img = image_urls[0] if image_urls else None
+                        if first_img:
+                            yield response.follow(first_img, callback=self._attach_image, cb_kwargs={"item": item})
+                        else:
+                            yield item
 
         # DBA pagination exposes <a rel="next" href="?page=2&q=...">
         next_page = (
@@ -187,18 +184,19 @@ class ListingSpider(scrapy.Spider):
                 self._pages_seen += 1
                 yield response.follow(next_page, callback=self.parse)
 
+    def _attach_image(self, response: Response, item: Listing) -> Iterator[Listing]:
+        try:
+            body = bytes(response.body)
+            if body:
+                item.images = [body]
+        except Exception:
+            pass
+        yield item
+
 
 def download_image(url: str) -> bytes | None:
-    """Download an image and return its bytes.
-
-    Returns ``None`` if the request fails."""
-
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-    except Exception:
-        return None
-    return resp.content
+    """Deprecated: image fetching now handled asynchronously by Scrapy."""
+    return None
 
 
 def fetch_dynamic(url: str, wait_time: float = 0.0) -> str:
