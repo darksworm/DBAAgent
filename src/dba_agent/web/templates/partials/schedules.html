@@ -30,9 +30,10 @@
         {% for s in schedules %}
           <li style="margin:.25rem 0;">
             <strong>{{ s.name }}</strong> — every {{ s.cadence_minutes }}m — pages: {{ s.max_pages if s.max_pages else '∞' }} — workers: {{ s.workers if s.workers else 1 }} — conc: {{ s.concurrency if s.concurrency else 'default' }} — newest: {{ 'yes' if s.newest_first else 'no' }} — last: {{ s.last_run if s.last_run else 'never' }} — watermark: {{ s.last_pub_ts if s.last_pub_ts else 'none' }}
+            {% set is_running = running and (s.id in running) %}
             <form hx-post="/schedules/run" hx-target="#schedules" hx-swap="innerHTML" style="display:inline">
               <input type="hidden" name="sid" value="{{ s.id }}" />
-              <button type="submit">Run now</button>
+              <button type="submit" {% if is_running %}disabled title="Running..."{% endif %}>Run now</button>
             </form>
             <form hx-post="/schedules/toggle" hx-target="#schedules" hx-swap="innerHTML" style="display:inline">
               <input type="hidden" name="sid" value="{{ s.id }}" />

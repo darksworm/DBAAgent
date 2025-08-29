@@ -241,3 +241,11 @@ class JobManager:
                 if j.schedule_id == schedule_id and j.status in ("starting", "running"):
                     return True
         return False
+
+    def running_schedule_ids(self) -> set[int]:
+        with self._lock:
+            return {
+                int(j.schedule_id)
+                for j in self._jobs.values()
+                if j.schedule_id is not None and j.status in ("starting", "running")
+            }
