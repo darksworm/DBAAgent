@@ -48,7 +48,7 @@
     <div id="events" hx-ext="sse" sse-connect="/events"></div>
 
     <h3>Search</h3>
-    <form hx-get="/search" hx-target="#results" hx-swap="innerHTML" hx-trigger="submit, sse:new_results from:#events">
+    <form id="search-form" hx-get="/search" hx-target="#results" hx-swap="innerHTML" hx-trigger="submit">
       <label>Keywords (include)
         <input name="q" type="text" placeholder="e.g. batavus carbon" />
       </label>
@@ -75,6 +75,9 @@
       </label>
       <button type="submit">Search</button>
     </form>
+    <!-- Listener that refreshes results on SSE or as periodic fallback -->
+    <div hx-get="/search" hx-include="#search-form" hx-target="#results" hx-trigger="sse:new_results from:#events, every 3s" hx-swap="innerHTML" style="display:none"></div>
+
     <div id="results">
       {% include 'partials/results.html' %}
     </div>
