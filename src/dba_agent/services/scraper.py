@@ -7,6 +7,7 @@ from typing import Iterable, Iterator, Optional
 import re
 import json
 
+import requests
 import scrapy
 from scrapy import Request
 from scrapy.http import Response
@@ -14,7 +15,7 @@ from scrapy.http import Response
 from dba_agent.models import Listing
 
 
-class ListingSpider(scrapy.Spider):  # type: ignore[misc]
+class ListingSpider(scrapy.Spider):
     """Basic spider that extracts ``Listing`` objects from listing cards."""
 
     name = "listings"
@@ -29,7 +30,7 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
     def __init__(
         self, start_urls: Optional[Iterable[str] | str] = None, **kwargs: object
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(**kwargs)  # type: ignore[arg-type]
         # Scrapy passes CLI args as strings. Accept either a string (comma/space-separated)
         # or an iterable of strings for start URLs.
         parsed: list[str] = []
@@ -48,11 +49,17 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
 
         for card in response.css("div.listing"):
             yielded = True
+            image_urls = card.css("img::attr(src)").getall()
+            images = [
+                data
+                for url in image_urls
+                if (data := download_image(url)) is not None
+            ]
             item = Listing(
                 title=card.css("h2::text").get(default="").strip(),
                 price=float(card.css("span.price::text").re_first(r"[\d.]+") or 0.0),
                 description=card.css("p.description::text").get(),
-                image_urls=card.css("img::attr(src)").getall(),
+                images=images,
                 location=card.css("span.location::text").get(),
                 timestamp=datetime.now(timezone.utc),
             )
@@ -105,12 +112,17 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
                             image_urls = [imgs]
                         else:
                             image_urls = []
+                        images = [
+                            data
+                            for url in image_urls
+                            if (data := download_image(url)) is not None
+                        ]
 
                         item = Listing(
                             title=title,
                             price=price,
                             description=desc,
-                            image_urls=image_urls,
+                            images=images,
                             location=None,
                             timestamp=datetime.now(timezone.utc),
                         )
@@ -125,11 +137,24 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
             yield response.follow(next_page, callback=self.parse)
 
 
+def download_image(url: str) -> bytes | None:
+    """Download an image and return its bytes.
+
+    Returns ``None`` if the request fails."""
+
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+    except Exception:
+        return None
+    return resp.content
+
+
 def fetch_dynamic(url: str, wait_time: float = 0.0) -> str:
     """Fetch page HTML using Selenium for sites requiring JS rendering."""
 
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
+    from selenium import webdriver  # type: ignore[import-not-found]
+    from selenium.webdriver.chrome.options import Options  # type: ignore[import-not-found]
     import time
 
     options = Options()
