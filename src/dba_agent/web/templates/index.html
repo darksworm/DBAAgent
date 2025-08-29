@@ -32,6 +32,17 @@
           }
         } catch (_) {}
       });
+      // Trim the Latest Results pane to at most 24 cards
+      document.addEventListener('htmx:afterSwap', function (e) {
+        try {
+          const tgt = e.detail && e.detail.target;
+          if (!tgt || tgt.id !== 'recent-list') return;
+          const max = 24;
+          while (tgt.children.length > max) {
+            tgt.removeChild(tgt.lastElementChild);
+          }
+        } catch (_) {}
+      });
     </script>
   </head>
   <body>
