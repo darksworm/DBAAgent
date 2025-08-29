@@ -27,6 +27,7 @@ from .events import hub
 import asyncio
 import queue
 from dba_agent.services.classifier import get_classifier
+from dba_agent.services.watch_value import WatchValueService
 
 
 app = FastAPI(title="DBA Deal-Finding")
@@ -38,6 +39,7 @@ app.add_middleware(
 )
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 jobs = JobManager()
+watch_value = WatchValueService()
 
 
 def load_sample_listings() -> List[Listing]:
@@ -542,3 +544,26 @@ def schedules_delete_view(request: Request, sid: int = Form(...)) -> HTMLRespons
         "partials/schedules.html",
         {"request": request, "schedules": schedule_list()},
     )
+
+@app.post("/api/watch/value")
+async def api_watch_value(payload: dict) -> JSONResponse:
+    title = str(payload.get("title") or "")
+    price_dkk = float(payload.get("price_dkk") or 0.0)
+    condition = str(payload.get("condition") or "used")
+    est = watch_value.estimate_resale_dkk(title, condition)
+    if est is None:
+        return JSONResponse({"error": "estimation_unavailable"}, status_code=503)
+    score = watch_value.deal_score(est, price_dkk)
+    tag = watch_value.tag(score)
+    from dba_agent.services.watch_value import normalize_model
+
+    return JSONResponse(
+        {
+            "model": normalize_model(title).upper(),
+            "estimated_resale_dkk": round(est, 2),
+            "listed_price_dkk": round(price_dkk, 2),
+            "deal_score": round(score, 4) if score is not None else None,
+            "tag": tag,
+        }
+    )
+
