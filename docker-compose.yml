@@ -25,9 +25,6 @@ services:
     ports:
       - "8000:8000"
 
-volumes:
-  pgdata:
-
   image-worker:
     build: .
     command: python -m dba_agent.workers.image_downloader
@@ -39,3 +36,6 @@ volumes:
       - db
     volumes:
       - .:/app
+
+volumes:
+  pgdata:
