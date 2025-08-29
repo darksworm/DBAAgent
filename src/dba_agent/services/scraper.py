@@ -31,7 +31,11 @@ class ListingSpider(scrapy.Spider):
     }
 
     def __init__(
-        self, start_urls: Optional[Iterable[str] | str] = None, **kwargs: object
+        self,
+        start_urls: Optional[Iterable[str] | str] = None,
+        max_pages: Optional[int | str] = None,
+        stop_before_ts: Optional[str] = None,
+        **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         # Scrapy passes CLI args as strings. Accept either a string (comma/space-separated)
@@ -43,6 +47,22 @@ class ListingSpider(scrapy.Spider):
         elif start_urls is not None:
             parsed = list(start_urls)
         self.start_urls = parsed
+        # Optional limit for pagination depth (for incremental scrapes)
+        try:
+            self._max_pages = int(max_pages) if max_pages is not None else None
+        except Exception:
+            self._max_pages = None
+        self._pages_seen = 1
+        # Optional cutoff timestamp for publish date; if items are sorted newest-first,
+        # we can stop pagination as soon as we encounter older items only.
+        from datetime import datetime
+        self._stop_before: Optional[datetime] = None
+        if stop_before_ts:
+            try:
+                s = stop_before_ts.rstrip('Z')
+                self._stop_before = datetime.fromisoformat(s)
+            except Exception:
+                self._stop_before = None
 
     def parse(
         self, response: Response, **kwargs: object
@@ -50,6 +70,7 @@ class ListingSpider(scrapy.Spider):
         """Parse listing cards on the page and follow pagination links."""
         yielded = False
 
+        seen_older = False
         for card in response.css("div.listing"):
             yielded = True
             image_urls = card.css("img::attr(src)").getall()
@@ -69,6 +90,9 @@ class ListingSpider(scrapy.Spider):
                 url=url,
                 timestamp=datetime.now(timezone.utc),
             )
+            if self._stop_before and item.timestamp <= self._stop_before:
+                seen_older = True
+                continue
             yield item
 
         # Fallback: parse JSON-LD ItemList if present (useful for sites like dba.dk)
@@ -127,6 +151,16 @@ class ListingSpider(scrapy.Spider):
                             if (data := download_image(url)) is not None
                         ]
 
+                        # Attempt to parse publish date
+                        ts = None
+                        for key in ("datePublished", "dateModified", "dateCreated"):
+                            val = prod.get(key)
+                            if isinstance(val, str):
+                                try:
+                                    ts = datetime.fromisoformat(val.rstrip('Z'))
+                                    break
+                                except Exception:
+                                    pass
                         item = Listing(
                             title=title,
                             price=price,
@@ -134,8 +168,11 @@ class ListingSpider(scrapy.Spider):
                             images=images,
                             location=None,
                             url=href,
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=ts or datetime.now(timezone.utc),
                         )
+                        if self._stop_before and item.timestamp <= self._stop_before:
+                            seen_older = True
+                            continue
                         yield item
 
         # DBA pagination exposes <a rel="next" href="?page=2&q=...">
@@ -144,7 +181,11 @@ class ListingSpider(scrapy.Spider):
             or response.css('a[rel="next"]::attr(href)').get()
         )
         if next_page:
-            yield response.follow(next_page, callback=self.parse)
+            if seen_older and self._stop_before is not None:
+                return
+            if self._max_pages is None or self._pages_seen < self._max_pages:
+                self._pages_seen += 1
+                yield response.follow(next_page, callback=self.parse)
 
 
 def download_image(url: str) -> bytes | None:

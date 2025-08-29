@@ -42,11 +42,20 @@
       <label>Start URLs (space or comma separated)
         <input name="start_urls" type="text" placeholder="https://example.com/page1 https://example.com/page2" required />
       </label>
+      <label>
+        <input type="checkbox" name="newest_first" value="1" checked />
+        Order newest first (append sort=PUBLISHED_DESC)
+      </label>
+      <label>Pages to crawl (optional)
+        <input name="pages" type="number" min="1" placeholder="e.g. 3" />
+      </label>
       <button type="submit">Start</button>
     </form>
     <div id="scrape-status"></div>
     <!-- Keep the jobs list fresh across refreshes -->
     <div hx-get="/scrape/jobs" hx-trigger="load, every 1s" hx-target="#scrape-status" hx-swap="innerHTML" style="display:none"></div>
+
+    <div id="schedules-panel" hx-get="/schedules" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
     <div id="events" hx-ext="sse" sse-connect="/events"></div>
 
     <h3>Search</h3>

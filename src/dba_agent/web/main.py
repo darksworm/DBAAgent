@@ -11,7 +11,16 @@ from fastapi.templating import Jinja2Templates
 from dba_agent.models import Listing
 from dba_agent.filters import FilterConfig, FilterEngine
 from dba_agent.repositories import __init__ as repo_init  # type: ignore
-from dba_agent.repositories.postgres import init_schema, search as db_search, upsert_many
+from dba_agent.repositories.postgres import (
+    init_schema,
+    search as db_search,
+    upsert_many,
+    schedule_create,
+    schedule_list,
+    schedule_toggle,
+    schedule_mark_ran,
+    schedules_due,
+)
 from .jobs import JobManager
 from .events import hub
 import asyncio
@@ -56,6 +65,28 @@ def on_startup() -> None:
         init_schema()
     except Exception:
         # DB may not be up; UI still works with file fallback
+        pass
+    # Start background scheduler (best-effort)
+    try:
+        async def scheduler_loop() -> None:
+            while True:
+                try:
+                    due = schedules_due()
+                    for s in due:
+                        cutoff = s["last_run"].isoformat() if s.get("last_run") else None
+                        jobs.start(
+                            s["urls"],
+                            max_pages=s.get("max_pages"),
+                            newest_first=bool(s.get("newest_first", True)),
+                            stop_before_ts=cutoff,
+                        )
+                        schedule_mark_ran(int(s["id"]))
+                except Exception:
+                    pass
+                await asyncio.sleep(60)
+
+        asyncio.get_event_loop().create_task(scheduler_loop())
+    except Exception:
         pass
 
 
@@ -166,8 +197,17 @@ def ingest_from_file(request: Request) -> HTMLResponse:
 
 
 @app.post("/scrape", response_class=HTMLResponse)
-def start_scrape(request: Request, start_urls: str = Form(...)) -> HTMLResponse:
-    job = jobs.start(start_urls)
+def start_scrape(
+    request: Request,
+    start_urls: str = Form(...),
+    newest_first: Optional[bool] = Form(False),
+    pages: Optional[str] = Form(None),
+) -> HTMLResponse:
+    try:
+        max_pages = int(pages) if pages else None
+    except Exception:
+        max_pages = None
+    job = jobs.start(start_urls, max_pages=max_pages, newest_first=bool(newest_first))
     return templates.TemplateResponse(
         "partials/scrape_jobs.html",
         {"request": request, "jobs": jobs.list_recent()},
@@ -196,6 +236,59 @@ def scrape_jobs(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         "partials/scrape_jobs.html",
         {"request": request, "jobs": jobs.list_recent()},
+    )
+
+
+@app.post("/schedules", response_class=HTMLResponse)
+def schedules_create_view(
+    request: Request,
+    name: str = Form(...),
+    urls: str = Form(...),
+    cadence_minutes: int = Form(1440),
+    pages: Optional[str] = Form(None),
+    newest_first: Optional[bool] = Form(True),
+) -> HTMLResponse:
+    max_pages = int(pages) if pages else None
+    schedule_create(name=name, urls=urls, cadence_minutes=int(cadence_minutes), max_pages=max_pages, newest_first=bool(newest_first))
+    return templates.TemplateResponse(
+        "partials/schedules.html",
+        {"request": request, "schedules": schedule_list()},
+    )
+
+
+@app.get("/schedules", response_class=HTMLResponse)
+def schedules_view(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "partials/schedules.html",
+        {"request": request, "schedules": schedule_list()},
+    )
+
+
+@app.post("/schedules/toggle", response_class=HTMLResponse)
+def schedules_toggle_view(request: Request, sid: int = Form(...), enabled: bool = Form(...)) -> HTMLResponse:
+    schedule_toggle(int(sid), bool(enabled))
+    return templates.TemplateResponse(
+        "partials/schedules.html",
+        {"request": request, "schedules": schedule_list()},
+    )
+
+
+@app.post("/schedules/run", response_class=HTMLResponse)
+def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
+    for s in schedule_list():
+        if int(s["id"]) == int(sid):
+            cutoff = s["last_run"].isoformat() if s.get("last_run") else None
+            jobs.start(
+                s["urls"],
+                max_pages=s.get("max_pages"),
+                newest_first=bool(s.get("newest_first", True)),
+                stop_before_ts=cutoff,
+            )
+            schedule_mark_ran(int(sid))
+            break
+    return templates.TemplateResponse(
+        "partials/schedules.html",
+        {"request": request, "schedules": schedule_list()},
     )
 
 

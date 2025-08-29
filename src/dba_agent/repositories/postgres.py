@@ -50,6 +50,16 @@ def init_schema() -> None:
                 CREATE INDEX IF NOT EXISTS listings_price_idx ON listings(price);
                 CREATE INDEX IF NOT EXISTS listings_ts_idx ON listings(ts);
                 CREATE INDEX IF NOT EXISTS listing_images_listing_idx ON listing_images(listing_id);
+                CREATE TABLE IF NOT EXISTS scrape_schedules (
+                  id BIGSERIAL PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  urls TEXT NOT NULL,
+                  cadence_minutes INTEGER NOT NULL,
+                  max_pages INTEGER,
+                  newest_first BOOLEAN NOT NULL DEFAULT TRUE,
+                  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                  last_run TIMESTAMPTZ
+                );
                 """
             )
             # Backfill column if migrating
@@ -208,3 +218,102 @@ def search(
                     )
                 )
     return results
+
+
+# Scheduling helpers
+def schedule_create(
+    name: str,
+    urls: str,
+    cadence_minutes: int,
+    max_pages: Optional[int],
+    newest_first: bool,
+) -> int:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scrape_schedules (name, urls, cadence_minutes, max_pages, newest_first, enabled)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                RETURNING id
+                """,
+                (name, urls, cadence_minutes, max_pages, newest_first),
+            )
+            sid = cur.fetchone()[0]
+        conn.commit()
+        return int(sid)
+
+
+def schedule_list() -> List[dict]:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run FROM scrape_schedules ORDER BY id DESC"
+            )
+            rows = cur.fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": r[0],
+                "name": r[1],
+                "urls": r[2],
+                "cadence_minutes": r[3],
+                "max_pages": r[4],
+                "newest_first": bool(r[5]),
+                "enabled": bool(r[6]),
+                "last_run": r[7],
+            }
+        )
+    return out
+
+
+def schedule_toggle(sid: int, enabled: bool) -> None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scrape_schedules SET enabled=%s WHERE id=%s",
+                (enabled, sid),
+            )
+        conn.commit()
+
+
+def schedule_mark_ran(sid: int, when: Optional[datetime] = None) -> None:
+    when = when or datetime.now(timezone.utc)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scrape_schedules SET last_run=%s WHERE id=%s",
+                (when, sid),
+            )
+        conn.commit()
+
+
+def schedules_due(now: Optional[datetime] = None) -> List[dict]:
+    now = now or datetime.now(timezone.utc)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run
+                FROM scrape_schedules
+                WHERE enabled = TRUE
+                  AND (last_run IS NULL OR last_run <= %s - (cadence_minutes || ' minutes')::interval)
+                """,
+                (now,),
+            )
+            rows = cur.fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": r[0],
+                "name": r[1],
+                "urls": r[2],
+                "cadence_minutes": r[3],
+                "max_pages": r[4],
+                "newest_first": bool(r[5]),
+                "enabled": bool(r[6]),
+                "last_run": r[7],
+            }
+        )
+    return out

@@ -1,0 +1,44 @@
+<div class="card" style="margin:.75rem 0; padding:.75rem; border:1px solid #eee; border-radius:8px;">
+  <h3>Schedules</h3>
+  <form hx-post="/schedules" hx-target="#schedules" hx-swap="innerHTML" style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:end; margin:.5rem 0;">
+    <label>Name
+      <input type="text" name="name" placeholder="Daily DBA" required />
+    </label>
+    <label>Start URLs
+      <input type="text" name="urls" placeholder="https://www.dba.dk/..." required />
+    </label>
+    <label>Every (minutes)
+      <input type="number" name="cadence_minutes" min="5" value="1440" />
+    </label>
+    <label>Pages
+      <input type="number" name="pages" min="1" placeholder="3" />
+    </label>
+    <label>
+      <input type="checkbox" name="newest_first" value="1" checked /> Newest first
+    </label>
+    <button type="submit">Add</button>
+  </form>
+  <div id="schedules">
+    {% if schedules %}
+      <ul>
+        {% for s in schedules %}
+          <li style="margin:.25rem 0;">
+            <strong>{{ s.name }}</strong> — every {{ s.cadence_minutes }}m — pages: {{ s.max_pages if s.max_pages else '∞' }} — newest: {{ 'yes' if s.newest_first else 'no' }} — last: {{ s.last_run if s.last_run else 'never' }}
+            <form hx-post="/schedules/run" hx-target="#schedules" hx-swap="innerHTML" style="display:inline">
+              <input type="hidden" name="sid" value="{{ s.id }}" />
+              <button type="submit">Run now</button>
+            </form>
+            <form hx-post="/schedules/toggle" hx-target="#schedules" hx-swap="innerHTML" style="display:inline">
+              <input type="hidden" name="sid" value="{{ s.id }}" />
+              <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}" />
+              <button type="submit">{{ 'Disable' if s.enabled else 'Enable' }}</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div>No schedules yet.</div>
+    {% endif %}
+  </div>
+</div>
+

@@ -14,6 +14,17 @@ from typing import Dict, List, Optional
 from dba_agent.models import Listing
 from dba_agent.repositories.postgres import upsert_many
 from .events import hub
+from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+
+
+def _append_query(url: str, extra: dict[str, str]) -> str:
+    try:
+        u = urlparse(url)
+        q = dict(parse_qsl(u.query))
+        q.update(extra)
+        return urlunparse((u.scheme, u.netloc, u.path, u.params, urlencode(q), u.fragment))
+    except Exception:
+        return url
 
 
 @dataclass
@@ -36,9 +47,19 @@ class JobManager:
         self._jobs: Dict[str, ScrapeJob] = {}
         self._lock = threading.Lock()
 
-    def start(self, start_urls: str) -> ScrapeJob:
+    def start(
+        self,
+        start_urls: str,
+        max_pages: Optional[int] = None,
+        newest_first: bool = False,
+        stop_before_ts: Optional[str] = None,
+    ) -> ScrapeJob:
         job_id = uuid.uuid4().hex[:8]
         outfile = Path.cwd() / f"scrape-{job_id}.jl"
+        if newest_first:
+            parts = [p for p in start_urls.replace(',', ' ').split() if p]
+            parts = [_append_query(p, {"sort": "PUBLISHED_DESC"}) for p in parts]
+            start_urls = " ".join(parts)
         job = ScrapeJob(id=job_id, start_urls=start_urls, outfile=outfile)
         with self._lock:
             self._jobs[job_id] = job
@@ -50,6 +71,18 @@ class JobManager:
             str(spider_path),
             "-a",
             f"start_urls={start_urls}",
+        ]
+        if max_pages is not None:
+            cmd += [
+                "-a",
+                f"max_pages={int(max_pages)}",
+            ]
+        if stop_before_ts:
+            cmd += [
+                "-a",
+                f"stop_before_ts={stop_before_ts}",
+            ]
+        cmd += [
             "-o",
             str(outfile),
         ]
