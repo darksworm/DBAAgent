@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Iterable, Iterator, Optional
+import re
+import json
 
 import scrapy
 from scrapy import Request
@@ -23,18 +25,28 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
     }
 
     def __init__(
-        self, start_urls: Optional[Iterable[str]] = None, **kwargs: object
+        self, start_urls: Optional[Iterable[str] | str] = None, **kwargs: object
     ) -> None:
         super().__init__(**kwargs)
-        self.start_urls = list(start_urls or [])
+        # Scrapy passes CLI args as strings. Accept either a string (comma/space-separated)
+        # or an iterable of strings for start URLs.
+        parsed: list[str] = []
+        if isinstance(start_urls, str):
+            parts = re.split(r"[\s,]+", start_urls.strip()) if start_urls.strip() else []
+            parsed = [p for p in parts if p]
+        elif start_urls is not None:
+            parsed = list(start_urls)
+        self.start_urls = parsed
 
     def parse(
         self, response: Response, **kwargs: object
     ) -> Iterator[Listing | Request]:
         """Parse listing cards on the page and follow pagination links."""
+        yielded = False
 
         for card in response.css("div.listing"):
-            yield Listing(
+            yielded = True
+            item = Listing(
                 title=card.css("h2::text").get(default="").strip(),
                 price=float(card.css("span.price::text").re_first(r"[\d.]+") or 0.0),
                 description=card.css("p.description::text").get(),
@@ -42,6 +54,65 @@ class ListingSpider(scrapy.Spider):  # type: ignore[misc]
                 location=card.css("span.location::text").get(),
                 timestamp=datetime.now(timezone.utc),
             )
+            yield item.model_dump(mode="json")
+
+        # Fallback: parse JSON-LD ItemList if present (useful for sites like dba.dk)
+        if not yielded:
+            text = response.text
+            idx = text.find('"@type":"ItemList"')
+            if idx != -1:
+                # Find the enclosing JSON object by matching braces
+                start = text.rfind('{', 0, idx)
+                end = start
+                depth = 0
+                for i, ch in enumerate(text[start:], start):
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                blob = text[start:end]
+                try:
+                    data = json.loads(blob)
+                except Exception:
+                    data = None
+                if isinstance(data, dict) and data.get("@type") == "ItemList":
+                    for elem in data.get("itemListElement", []) or []:
+                        prod = elem.get("item") if isinstance(elem, dict) else None
+                        if not prod and isinstance(elem, dict):
+                            prod = elem
+                        if not isinstance(prod, dict):
+                            continue
+                        title = str(prod.get("name") or "").strip()
+                        # price might be string; default to 0.0 on failure
+                        price_raw = None
+                        offers = prod.get("offers") or {}
+                        if isinstance(offers, dict):
+                            price_raw = offers.get("price")
+                        try:
+                            price = float(price_raw) if price_raw is not None else 0.0
+                        except Exception:
+                            price = 0.0
+                        desc = prod.get("description") if isinstance(prod.get("description"), str) else None
+                        imgs = prod.get("image")
+                        if isinstance(imgs, list):
+                            image_urls = [str(u) for u in imgs]
+                        elif isinstance(imgs, str):
+                            image_urls = [imgs]
+                        else:
+                            image_urls = []
+
+                        item = Listing(
+                            title=title,
+                            price=price,
+                            description=desc,
+                            image_urls=image_urls,
+                            location=None,
+                            timestamp=datetime.now(timezone.utc),
+                        )
+                        yield item.model_dump(mode="json")
 
         next_page = response.css("a.next::attr(href)").get()
         if next_page:

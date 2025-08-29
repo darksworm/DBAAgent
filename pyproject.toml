@@ -6,17 +6,18 @@ requires-python = ">=3.11"
 authors = [{ name = "Unknown" }]
 readme = "README.md"
 
-[project.dependencies]
-pydantic = "^2.0"
-fastapi = "^0.110"
-scrapy = "^2.11"
-selenium = "^4.10"
-langchain = "^0.1"
-requests = "^2.31"
-psycopg2-binary = "^2.9"
-pgvector = "^0.1.10"
-redis = "^5.0"
-huggingface-hub = "^0.19"
+dependencies = [
+    "pydantic>=2.0",
+    "fastapi>=0.110",
+    "scrapy>=2.11",
+    "selenium>=4.10",
+    "langchain>=0.1",
+    "requests>=2.31",
+    "psycopg2-binary>=2.9",
+    "pgvector>=0.1.10",
+    "redis>=5.0",
+    "huggingface-hub>=0.19",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -42,3 +43,10 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dba_agent"]

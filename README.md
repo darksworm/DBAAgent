@@ -12,7 +12,10 @@ objects from listing pages.
 Run the spider and save results to JSON:
 
 ```bash
-scrapy runspider src/dba_agent/services/scraper.py -O listings.json
+# Provide one or more URLs via -a start_urls (comma or space separated)
+scrapy runspider src/dba_agent/services/scraper.py \
+  -a start_urls="https://example.com/page1,https://example.com/page2" \
+  -O listings.json
 ```
 
 The output file contains newline-delimited JSON representations of each
@@ -37,9 +40,12 @@ The repository includes a Docker setup for local development. It provides a Post
 
 3. **Run the scraper**
 
-   ```bash
-   docker compose run --rm app scrapy runspider src/dba_agent/services/scraper.py -O listings.json
-   ```
+```bash
+docker compose run --rm app \
+  scrapy runspider src/dba_agent/services/scraper.py \
+  -a start_urls="https://example.com/page1 https://example.com/page2" \
+  -O listings.json
+```
 
 4. **Run tests**
 
@@ -54,4 +60,3 @@ The repository includes a Docker setup for local development. It provides a Post
    ```
 
 The database and application run entirely inside containers so nothing needs to be installed on the host machine.
-
