@@ -59,6 +59,7 @@ class JobManager:
         stop_on_known: Optional[bool] = None,
         known_threshold: Optional[int] = None,
         schedule_id: Optional[int] = None,
+        group_id: Optional[str] = None,
     ) -> ScrapeJob:
         job_id = uuid.uuid4().hex[:8]
         outfile = Path.cwd() / f"scrape-{job_id}.jl"
@@ -67,6 +68,7 @@ class JobManager:
             parts = [_append_query(p, {"sort": "PUBLISHED_DESC"}) for p in parts]
             start_urls = " ".join(parts)
         job = ScrapeJob(id=job_id, start_urls=start_urls, outfile=outfile, schedule_id=schedule_id)
+        job.group_id = group_id
         with self._lock:
             self._jobs[job_id] = job
         # Build subprocess command (JSON Lines output for incremental ingest)

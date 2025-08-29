@@ -273,11 +273,14 @@ def start_scrape(
 
     urls = [u for u in start_urls.replace(",", " ").split() if u]
     if worker_count <= 1 or len(urls) <= 1:
-        jobs.start(
+        import uuid as _uuid
+    group_id = _uuid.uuid4().hex[:6]
+    jobs.start(
             start_urls,
             max_pages=max_pages,
             newest_first=bool(newest_first),
             settings=extra_settings or None,
+            group_id=group_id,
         )
     else:
         n = max(1, min(worker_count, len(urls)))
@@ -289,10 +292,11 @@ def start_scrape(
                 max_pages=max_pages,
                 newest_first=bool(newest_first),
                 settings=extra_settings or None,
+                group_id=group_id,
             )
     return templates.TemplateResponse(
-        "partials/scrape_jobs.html",
-        {"request": request, "jobs": jobs.list_recent()},
+        "partials/scrape_groups.html",
+        {"request": request, "groups": jobs.list_groups()},
     )
 
 
@@ -316,8 +320,8 @@ def scrape_stop(job_id: str = Form(...)) -> JSONResponse:
 @app.get("/scrape/jobs", response_class=HTMLResponse)
 def scrape_jobs(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
-        "partials/scrape_jobs.html",
-        {"request": request, "jobs": jobs.list_recent()},
+        "partials/scrape_groups.html",
+        {"request": request, "groups": jobs.list_groups()},
     )
 
 
