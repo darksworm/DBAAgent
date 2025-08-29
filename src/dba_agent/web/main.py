@@ -26,6 +26,7 @@ from .jobs import JobManager
 from .events import hub
 import asyncio
 import queue
+from dba_agent.services.classifier import get_classifier
 
 
 app = FastAPI(title="DBA Deal-Finding")
@@ -111,6 +112,7 @@ def search(
     max_price: Optional[str] = Query(None),
     min_images: Optional[str] = Query(None),
     max_age_days: Optional[str] = Query(None),
+    use_llm: Optional[bool] = Query(False),
 ) -> HTMLResponse:
     # Parse numeric inputs defensively to handle empty strings from forms
     def _f(s: Optional[str]) -> Optional[float]:
@@ -170,6 +172,7 @@ def search(
         engine = FilterEngine(cfg)
 
     import base64
+    clf = get_classifier(include=include, exclude=exclude) if use_llm else None
     scored = []
     for l in listings:
         fr = engine.apply(l)
@@ -179,7 +182,17 @@ def search(
         if l.images:
             b64 = base64.b64encode(l.images[0]).decode("ascii")
             img_src = f"data:image/jpeg;base64,{b64}"
-        scored.append({"item": l, "score": fr.score, "image_src": img_src})
+        llm_score = None
+        combined = fr.score
+        if clf:
+            text = f"{l.title}\n\n{l.description or ''}"
+            try:
+                llm_score = float(clf.score(text).score)
+                combined = 0.5 * combined + 0.5 * llm_score
+            except Exception:
+                llm_score = None
+                combined = fr.score
+        scored.append({"item": l, "score": combined, "image_src": img_src, "llm": llm_score, "static": fr.score})
     return templates.TemplateResponse(
         "partials/results.html",
         {"request": request, "results": scored, "config": cfg},

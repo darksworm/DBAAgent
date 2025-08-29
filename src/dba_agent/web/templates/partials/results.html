@@ -15,7 +15,7 @@
         </div>
         <div class="price">{{ '%.2f'|format(l.price) }} DKK</div>
         {% if r.score is defined %}
-          <div>Score: {{ '%.2f'|format(r.score) }}</div>
+          <div>Score: {{ '%.2f'|format(r.score) }}{% if r.llm is defined and r.llm is not none %} (LLM: {{ '%.2f'|format(r.llm) }}, static: {{ '%.2f'|format(r.static) }}){% endif %}</div>
         {% endif %}
         {% if l.description %}
           <div class="desc">{{ l.description }}</div>
