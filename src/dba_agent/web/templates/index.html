@@ -45,6 +45,8 @@
       <button type="submit">Start</button>
     </form>
     <div id="scrape-status"></div>
+    <!-- Keep the jobs list fresh across refreshes -->
+    <div hx-get="/scrape/jobs" hx-trigger="load, every 1s" hx-target="#scrape-status" hx-swap="innerHTML" style="display:none"></div>
     <div id="events" hx-ext="sse" sse-connect="/events"></div>
 
     <h3>Search</h3>

@@ -169,8 +169,8 @@ def ingest_from_file(request: Request) -> HTMLResponse:
 def start_scrape(request: Request, start_urls: str = Form(...)) -> HTMLResponse:
     job = jobs.start(start_urls)
     return templates.TemplateResponse(
-        "partials/scrape_status.html",
-        {"request": request, "job": job},
+        "partials/scrape_jobs.html",
+        {"request": request, "jobs": jobs.list_recent()},
     )
 
 
@@ -189,6 +189,14 @@ def scrape_status(request: Request, job_id: str) -> HTMLResponse:
 def scrape_stop(job_id: str = Form(...)) -> JSONResponse:
     ok = jobs.stop(job_id)
     return JSONResponse({"ok": ok})
+
+
+@app.get("/scrape/jobs", response_class=HTMLResponse)
+def scrape_jobs(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "partials/scrape_jobs.html",
+        {"request": request, "jobs": jobs.list_recent()},
+    )
 
 
 @app.get("/events")

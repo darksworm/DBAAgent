@@ -163,3 +163,9 @@ class JobManager:
             except Exception:
                 pass
         return True
+
+    def list_recent(self, limit: int = 5) -> List[ScrapeJob]:
+        with self._lock:
+            jobs = list(self._jobs.values())
+        jobs.sort(key=lambda j: j.started_at, reverse=True)
+        return jobs[:limit]
