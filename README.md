@@ -60,14 +60,8 @@ docker compose run --rm app \
 
    The UI reads from Postgres (fallback to `listings.json` if DB is unavailable).
 
-   - Expose port 8000 is already configured in `docker-compose.yml`.
-   - Start the app inside the container:
-
-   ```bash
-   docker compose exec app uvicorn dba_agent.web.main:app --host 0.0.0.0 --port 8000
-   ```
-
-   - Open http://localhost:8000 and use the form to filter.
+   - The app now starts automatically with `docker compose up -d` and listens on port 8000.
+   - Open http://localhost:8000 and use the form to filter (and start scrapes).
    - Optionally ingest the latest `listings.json` into Postgres:
 
    ```bash
