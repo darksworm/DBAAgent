@@ -12,6 +12,7 @@ from scrapy import Request
 from scrapy.http import Response
 
 from dba_agent.models import Listing
+from dba_agent.repositories.postgres import listing_key, connect as db_connect
 
 
 class ListingSpider(scrapy.Spider):
@@ -34,6 +35,8 @@ class ListingSpider(scrapy.Spider):
         start_urls: Optional[Iterable[str] | str] = None,
         max_pages: Optional[int | str] = None,
         fetch_images: Optional[bool | str] = None,
+        stop_on_known: Optional[bool | str] = None,
+        known_threshold: Optional[int | str] = None,
         stop_before_ts: Optional[str] = None,
         **kwargs: object,
     ) -> None:
@@ -68,6 +71,26 @@ class ListingSpider(scrapy.Spider):
                 self._stop_before = datetime.fromisoformat(s)
             except Exception:
                 self._stop_before = None
+        # Optional boundary stop when encountering already-known items (by DB key)
+        if isinstance(stop_on_known, str):
+            self._stop_on_known = stop_on_known not in ("0", "false", "False", "no", "None", "")
+        else:
+            self._stop_on_known = bool(stop_on_known) if stop_on_known is not None else False
+        try:
+            self._known_threshold = int(known_threshold) if known_threshold is not None else 1
+        except Exception:
+            self._known_threshold = 1
+        self._known_seen = 0
+        self._known_cache: set[str] = set()
+        self._db_conn = None
+        self._db_cursor = None
+        if self._stop_on_known:
+            try:
+                self._db_conn = db_connect().__enter__()
+                self._db_cursor = self._db_conn.cursor()
+            except Exception:
+                self._db_conn = None
+                self._db_cursor = None
 
     def parse(
         self, response: Response, **kwargs: object
@@ -76,6 +99,7 @@ class ListingSpider(scrapy.Spider):
         yielded = False
 
         seen_older = False
+        seen_known_boundary = False
         for card in response.css("div.listing"):
             yielded = True
             image_urls = card.css("img::attr(src)").getall()
@@ -93,6 +117,19 @@ class ListingSpider(scrapy.Spider):
             if self._stop_before and item.timestamp <= self._stop_before:
                 seen_older = True
                 continue
+            if self._stop_on_known and self._db_cursor is not None:
+                try:
+                    k = listing_key(item)
+                    if k not in self._known_cache:
+                        self._db_cursor.execute("SELECT 1 FROM listings WHERE key=%s LIMIT 1", (k,))
+                        exists = self._db_cursor.fetchone() is not None
+                        if exists:
+                            self._known_seen += 1
+                            self._known_cache.add(k)
+                            seen_known_boundary = self._known_seen >= self._known_threshold
+                            continue
+                except Exception:
+                    pass
             if self._fetch_images:
                 first_img = image_urls[0] if image_urls else None
                 if first_img:
@@ -178,6 +215,19 @@ class ListingSpider(scrapy.Spider):
                         if self._stop_before and item.timestamp <= self._stop_before:
                             seen_older = True
                             continue
+                        if self._stop_on_known and self._db_cursor is not None:
+                            try:
+                                k = listing_key(item)
+                                if k not in self._known_cache:
+                                    self._db_cursor.execute("SELECT 1 FROM listings WHERE key=%s LIMIT 1", (k,))
+                                    exists = self._db_cursor.fetchone() is not None
+                                    if exists:
+                                        self._known_seen += 1
+                                        self._known_cache.add(k)
+                                        seen_known_boundary = self._known_seen >= self._known_threshold
+                                        continue
+                            except Exception:
+                                pass
                         if self._fetch_images:
                             first_img = image_urls[0] if image_urls else None
                             if first_img:
@@ -197,6 +247,8 @@ class ListingSpider(scrapy.Spider):
         )
         if next_page:
             if seen_older and self._stop_before is not None:
+                return
+            if seen_known_boundary and self._stop_on_known:
                 return
             if self._max_pages is None or self._pages_seen < self._max_pages:
                 self._pages_seen += 1

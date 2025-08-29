@@ -82,6 +82,7 @@ def on_startup() -> None:
                             newest_first=bool(s.get("newest_first", True)),
                             stop_before_ts=cutoff,
                             fetch_images=True,
+                            stop_on_known=True,
                         )
                         schedule_mark_ran(int(s["id"]))
                 except Exception:
@@ -340,6 +341,7 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
                 newest_first=bool(s.get("newest_first", True)),
                 stop_before_ts=cutoff,
                 fetch_images=True,
+                stop_on_known=True,
             )
             schedule_mark_ran(int(sid))
             break

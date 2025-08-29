@@ -55,6 +55,8 @@ class JobManager:
         stop_before_ts: Optional[str] = None,
         settings: Optional[dict[str, object]] = None,
         fetch_images: Optional[bool] = None,
+        stop_on_known: Optional[bool] = None,
+        known_threshold: Optional[int] = None,
     ) -> ScrapeJob:
         job_id = uuid.uuid4().hex[:8]
         outfile = Path.cwd() / f"scrape-{job_id}.jl"
