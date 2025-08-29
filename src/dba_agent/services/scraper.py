@@ -33,6 +33,7 @@ class ListingSpider(scrapy.Spider):
         self,
         start_urls: Optional[Iterable[str] | str] = None,
         max_pages: Optional[int | str] = None,
+        fetch_images: Optional[bool | str] = None,
         stop_before_ts: Optional[str] = None,
         **kwargs: object,
     ) -> None:
@@ -52,6 +53,11 @@ class ListingSpider(scrapy.Spider):
         except Exception:
             self._max_pages = None
         self._pages_seen = 1
+        # Control whether to fetch first image per listing during scrape
+        if isinstance(fetch_images, str):
+            self._fetch_images = fetch_images not in ("0", "false", "False", "no", "None", "")
+        else:
+            self._fetch_images = bool(fetch_images) if fetch_images is not None else False
         # Optional cutoff timestamp for publish date; if items are sorted newest-first,
         # we can stop pagination as soon as we encounter older items only.
         from datetime import datetime
@@ -87,11 +93,17 @@ class ListingSpider(scrapy.Spider):
             if self._stop_before and item.timestamp <= self._stop_before:
                 seen_older = True
                 continue
-            first_img = image_urls[0] if image_urls else None
-            if first_img:
-                yield response.follow(first_img, callback=self._attach_image, cb_kwargs={"item": item})
-            else:
-                yield item
+            if self._fetch_images:
+                first_img = image_urls[0] if image_urls else None
+                if first_img:
+                    yield response.follow(
+                        first_img,
+                        callback=self._attach_image,
+                        cb_kwargs={"item": item},
+                        priority=-10,
+                    )
+                    continue
+            yield item
 
         # Fallback: parse JSON-LD ItemList if present (useful for sites like dba.dk)
         if not yielded:
@@ -166,11 +178,17 @@ class ListingSpider(scrapy.Spider):
                         if self._stop_before and item.timestamp <= self._stop_before:
                             seen_older = True
                             continue
-                        first_img = image_urls[0] if image_urls else None
-                        if first_img:
-                            yield response.follow(first_img, callback=self._attach_image, cb_kwargs={"item": item})
-                        else:
-                            yield item
+                        if self._fetch_images:
+                            first_img = image_urls[0] if image_urls else None
+                            if first_img:
+                                yield response.follow(
+                                    first_img,
+                                    callback=self._attach_image,
+                                    cb_kwargs={"item": item},
+                                    priority=-10,
+                                )
+                                continue
+                        yield item
 
         # DBA pagination exposes <a rel="next" href="?page=2&q=...">
         next_page = (

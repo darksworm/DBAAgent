@@ -54,6 +54,7 @@ class JobManager:
         newest_first: bool = False,
         stop_before_ts: Optional[str] = None,
         settings: Optional[dict[str, object]] = None,
+        fetch_images: Optional[bool] = None,
     ) -> ScrapeJob:
         job_id = uuid.uuid4().hex[:8]
         outfile = Path.cwd() / f"scrape-{job_id}.jl"
@@ -82,6 +83,11 @@ class JobManager:
             cmd += [
                 "-a",
                 f"stop_before_ts={stop_before_ts}",
+            ]
+        if fetch_images is not None:
+            cmd += [
+                "-a",
+                f"fetch_images={'1' if fetch_images else '0'}",
             ]
         # Extra Scrapy settings from caller
         if settings:
