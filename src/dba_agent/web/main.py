@@ -205,6 +205,13 @@ def search(
         if l.images:
             b64 = base64.b64encode(l.images[0]).decode("ascii")
             img_src = f"data:image/jpeg;base64,{b64}"
+        elif getattr(l, "image_urls", None):
+            try:
+                first_url = l.image_urls[0]
+                if isinstance(first_url, str) and first_url:
+                    img_src = first_url
+            except Exception:
+                pass
         llm_score = None
         combined = fr.score
         if clf:

@@ -76,9 +76,17 @@ def init_schema() -> None:
 
 
 def listing_key(l: Listing) -> str:
-    first_img = l.images[0] if getattr(l, "images", None) else b""
-    img_sig = hashlib.sha1(first_img).hexdigest() if first_img else ""
-    basis = f"{l.title}|{l.price}|{(l.description or '')[:64]}|{img_sig}"
+    """Stable key for a listing used for upsert de-duplication.
+
+    Prefer using the canonical URL if available; otherwise fall back to
+    a composite of title/price/description prefix. Avoid using image bytes
+    since images may be fetched asynchronously and would cause unstable keys.
+    """
+    url = getattr(l, "url", None) or ""
+    if url:
+        basis = url
+    else:
+        basis = f"{l.title}|{float(l.price)}|{(l.description or '')[:64]}"
     return hashlib.sha1(basis.encode("utf-8")).hexdigest()
 
 
@@ -199,7 +207,8 @@ def search(
         params.append(cutoff)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     sql = (
-        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image, COALESCE(jsonb_array_length(l.image_urls),0) as url_cnt "
+        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image, "
+        "       COALESCE(jsonb_array_length(l.image_urls),0) as url_cnt, (l.image_urls ->> 0) as first_url "
         "FROM listings l "
         "LEFT JOIN LATERAL (SELECT data FROM listing_images WHERE listing_id=l.id ORDER BY idx ASC LIMIT 1) li ON TRUE "
         "LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM listing_images WHERE listing_id=l.id) ic ON TRUE "
@@ -214,14 +223,16 @@ def search(
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            for _id, title, price, desc, location, url, ts, first_image, _url_cnt in cur.fetchall():
+            for _id, title, price, desc, location, url, ts, first_image, _url_cnt, first_url in cur.fetchall():
                 images_list: List[bytes] = [bytes(first_image)] if first_image is not None else []
+                image_urls_list: List[str] = [first_url] if first_url else []
                 results.append(
                     Listing(
                         title=title,
                         price=float(price),
                         description=desc,
                         images=images_list,
+                        image_urls=image_urls_list,
                         location=location,
                         url=url,
                         timestamp=ts,
