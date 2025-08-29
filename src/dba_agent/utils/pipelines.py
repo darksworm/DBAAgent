@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel
+import base64
 
 
 class JsonifyPydantic:
@@ -15,6 +16,15 @@ class JsonifyPydantic:
 
     def process_item(self, item: Any, spider: Any) -> Any:  # scrapy signature
         if isinstance(item, BaseModel):
-            return item.model_dump(mode="json")
+            data = item.model_dump(mode="python")
+            imgs = data.get("images") if isinstance(data, dict) else None
+            if isinstance(imgs, list):
+                out = []
+                for b in imgs:
+                    if isinstance(b, (bytes, bytearray)):
+                        out.append(base64.b64encode(b).decode("ascii"))
+                    else:
+                        out.append(b)
+                data["images"] = out
+            return data
         return item
-
