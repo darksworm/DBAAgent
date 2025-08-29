@@ -17,6 +17,12 @@ def main() -> None:
     items = []
     for obj in data or []:
         try:
+            imgs = obj.get("images")
+            if isinstance(imgs, list) and imgs and isinstance(imgs[0], str):
+                import base64
+
+                obj = dict(obj)
+                obj["images"] = [base64.b64decode(s) for s in imgs]
             items.append(Listing(**obj))
         except Exception:
             continue
@@ -27,4 +33,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

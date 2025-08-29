@@ -81,7 +81,7 @@ class FilterEngine:
 
         # Minimum number of images
         if self.config.min_images is not None:
-            if len(listing.image_urls) < self.config.min_images:
+            if len(getattr(listing, "images", []) or []) < self.config.min_images:
                 reasons.append("below_min_images")
                 return FilterResult(False, score, reasons)
             score += 0.5

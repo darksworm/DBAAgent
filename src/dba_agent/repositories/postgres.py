@@ -4,7 +4,7 @@ import json
 import os
 import hashlib
 from contextlib import contextmanager
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from datetime import datetime, timedelta, timezone
 
 import psycopg2
@@ -37,57 +37,91 @@ def init_schema() -> None:
                   title TEXT NOT NULL,
                   price DOUBLE PRECISION NOT NULL,
                   description TEXT,
-                  image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
                   location TEXT,
                   ts TIMESTAMPTZ NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS listing_images (
+                  listing_id BIGINT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+                  idx INTEGER NOT NULL,
+                  data BYTEA NOT NULL,
+                  PRIMARY KEY (listing_id, idx)
+                );
                 CREATE INDEX IF NOT EXISTS listings_price_idx ON listings(price);
                 CREATE INDEX IF NOT EXISTS listings_ts_idx ON listings(ts);
+                CREATE INDEX IF NOT EXISTS listing_images_listing_idx ON listing_images(listing_id);
                 """
             )
         conn.commit()
 
 
 def listing_key(l: Listing) -> str:
-    first_img = str(l.image_urls[0]) if l.image_urls else ""
-    basis = f"{l.title}|{l.price}|{(l.description or '')[:64]}|{first_img}"
+    first_img = l.images[0] if getattr(l, "images", None) else b""
+    img_sig = hashlib.sha1(first_img).hexdigest() if first_img else ""
+    basis = f"{l.title}|{l.price}|{(l.description or '')[:64]}|{img_sig}"
     return hashlib.sha1(basis.encode("utf-8")).hexdigest()
 
 
 def upsert_many(items: Iterable[Listing]) -> int:
     rows = []
+    images_by_key: Dict[str, List[bytes]] = {}
     for l in items:
+        k = listing_key(l)
         rows.append(
             (
-                listing_key(l),
+                k,
                 l.title,
                 float(l.price),
                 l.description,
-                json.dumps([str(u) for u in l.image_urls]),
                 l.location,
                 l.timestamp,
             )
         )
+        images_by_key[k] = list(getattr(l, "images", []) or [])
     if not rows:
         return 0
     with connect() as conn:
         with conn.cursor() as cur:
+            # Upsert listings
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO listings (key, title, price, description, image_urls, location, ts)
+                INSERT INTO listings (key, title, price, description, location, ts)
                 VALUES %s
                 ON CONFLICT (key) DO UPDATE SET
                   title = EXCLUDED.title,
                   price = EXCLUDED.price,
                   description = EXCLUDED.description,
-                  image_urls = EXCLUDED.image_urls,
                   location = EXCLUDED.location,
                   ts = EXCLUDED.ts
                 """,
                 rows,
                 page_size=200,
             )
+            # Fetch ids for keys
+            keys = list(images_by_key.keys())
+            cur.execute("SELECT id, key FROM listings WHERE key = ANY(%s)", (keys,))
+            id_by_key = {k: i for i, k in cur.fetchall()}
+            # Delete existing images for these listings
+            if id_by_key:
+                cur.execute(
+                    "DELETE FROM listing_images WHERE listing_id = ANY(%s)",
+                    (list(id_by_key.values()),),
+                )
+            # Insert images
+            img_rows = []
+            for k, imgs in images_by_key.items():
+                lid = id_by_key.get(k)
+                if not lid:
+                    continue
+                for idx, data in enumerate(imgs):
+                    img_rows.append((lid, idx, psycopg2.Binary(data)))
+            if img_rows:
+                psycopg2.extras.execute_values(
+                    cur,
+                    "INSERT INTO listing_images (listing_id, idx, data) VALUES %s",
+                    img_rows,
+                    page_size=200,
+                )
         conn.commit()
         return len(rows)
 
@@ -142,26 +176,29 @@ def search(
         params.append(cutoff)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     sql = (
-        "SELECT title, price, description, image_urls, location, ts FROM listings"
-        + where_sql
-        + " ORDER BY ts DESC LIMIT %s"
+        "SELECT l.id, l.title, l.price, l.description, l.location, l.ts, li.data as first_image "
+        "FROM listings l "
+        "LEFT JOIN LATERAL (SELECT data FROM listing_images WHERE listing_id=l.id ORDER BY idx ASC LIMIT 1) li ON TRUE "
+        "LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM listing_images WHERE listing_id=l.id) ic ON TRUE "
+        + where_sql.replace("WHERE ", "WHERE ")
+        + (" AND ic.cnt >= %s" if min_images is not None else "")
+        + " ORDER BY l.ts DESC LIMIT %s"
     )
+    if min_images is not None:
+        params.append(min_images)
     params.append(limit)
     results: List[Listing] = []
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            for title, price, desc, image_urls, location, ts in cur.fetchall():
-                try:
-                    images = json.loads(image_urls) if isinstance(image_urls, str) else image_urls
-                except Exception:
-                    images = []
+            for _id, title, price, desc, location, ts, first_image in cur.fetchall():
+                images_list: List[bytes] = [bytes(first_image)] if first_image is not None else []
                 results.append(
                     Listing(
                         title=title,
                         price=float(price),
                         description=desc,
-                        image_urls=images or [],
+                        images=images_list,
                         location=location,
                         timestamp=ts,
                     )

@@ -30,6 +30,13 @@ def load_sample_listings() -> List[Listing]:
         items = []
         for obj in data or []:
             try:
+                imgs = obj.get("images")
+                if isinstance(imgs, list) and imgs and isinstance(imgs[0], str):
+                    # Likely base64-encoded; decode
+                    import base64
+
+                    obj = dict(obj)
+                    obj["images"] = [base64.b64decode(s) for s in imgs]
                 items.append(Listing(**obj))
             except Exception:
                 continue
@@ -104,12 +111,23 @@ def search(
             "partials/results.html",
             {"request": request, "results": results, "config": cfg},
         )
-    # Compute score and filter using engine
+    # Compute score and filter using engine. Since DB already enforced min_images,
+    # avoid double-checking by disregarding min_images for the in-process filter.
+    if cfg.min_images is not None:
+        cfg.min_images = None
+        engine = FilterEngine(cfg)
+
+    import base64
     scored = []
     for l in listings:
         fr = engine.apply(l)
-        if fr.included:
-            scored.append({"item": l, "score": fr.score})
+        if not fr.included:
+            continue
+        img_src = None
+        if l.images:
+            b64 = base64.b64encode(l.images[0]).decode("ascii")
+            img_src = f"data:image/jpeg;base64,{b64}"
+        scored.append({"item": l, "score": fr.score, "image_src": img_src})
     return templates.TemplateResponse(
         "partials/results.html",
         {"request": request, "results": scored, "config": cfg},

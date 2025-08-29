@@ -3,8 +3,8 @@
     {% for r in results %}
       {% set l = r.item if r.item is defined else r %}
       <div class="card">
-        {% if l.image_urls %}
-          <img src="{{ l.image_urls[0] }}" alt="" />
+        {% if r.image_src is defined and r.image_src %}
+          <img src="{{ r.image_src }}" alt="" />
         {% endif %}
         <div class="title">{{ l.title }}</div>
         <div class="price">{{ '%.2f'|format(l.price) }} DKK</div>
