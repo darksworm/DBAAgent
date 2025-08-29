@@ -53,6 +53,8 @@ class ListingSpider(scrapy.Spider):
         for card in response.css("div.listing"):
             yielded = True
             image_urls = card.css("img::attr(src)").getall()
+            href = card.css("a::attr(href)").get()
+            url = response.urljoin(href) if href else None
             images = [
                 data
                 for url in image_urls
@@ -64,6 +66,7 @@ class ListingSpider(scrapy.Spider):
                 description=card.css("p.description::text").get(),
                 images=images,
                 location=card.css("span.location::text").get(),
+                url=url,
                 timestamp=datetime.now(timezone.utc),
             )
             yield item
@@ -108,6 +111,9 @@ class ListingSpider(scrapy.Spider):
                         except Exception:
                             price = 0.0
                         desc = prod.get("description") if isinstance(prod.get("description"), str) else None
+                        href = prod.get("url") if isinstance(prod.get("url"), str) else None
+                        if href and href.startswith("/"):
+                            href = response.urljoin(href)
                         imgs = prod.get("image")
                         if isinstance(imgs, list):
                             image_urls = [str(u) for u in imgs]
@@ -127,6 +133,7 @@ class ListingSpider(scrapy.Spider):
                             description=desc,
                             images=images,
                             location=None,
+                            url=href,
                             timestamp=datetime.now(timezone.utc),
                         )
                         yield item

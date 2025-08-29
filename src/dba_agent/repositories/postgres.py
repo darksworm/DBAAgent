@@ -38,6 +38,7 @@ def init_schema() -> None:
                   price DOUBLE PRECISION NOT NULL,
                   description TEXT,
                   location TEXT,
+                  url TEXT,
                   ts TIMESTAMPTZ NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS listing_images (
@@ -51,6 +52,8 @@ def init_schema() -> None:
                 CREATE INDEX IF NOT EXISTS listing_images_listing_idx ON listing_images(listing_id);
                 """
             )
+            # Backfill column if migrating
+            cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS url TEXT;")
         conn.commit()
 
 
@@ -63,7 +66,7 @@ def listing_key(l: Listing) -> str:
 
 def upsert_many(items: Iterable[Listing]) -> int:
     # De-duplicate by key to avoid ON CONFLICT affecting the same row twice
-    rows_by_key: Dict[str, Tuple[str, str, float, Optional[str], Optional[str], object]] = {}
+    rows_by_key: Dict[str, Tuple[str, str, float, Optional[str], Optional[str], Optional[str], object]] = {}
     images_by_key: Dict[str, List[bytes]] = {}
     for l in items:
         k = listing_key(l)
@@ -73,6 +76,7 @@ def upsert_many(items: Iterable[Listing]) -> int:
             float(l.price),
             l.description,
             l.location,
+            getattr(l, "url", None),
             l.timestamp,
         )
         images_by_key[k] = list(getattr(l, "images", []) or [])
@@ -85,13 +89,14 @@ def upsert_many(items: Iterable[Listing]) -> int:
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO listings (key, title, price, description, location, ts)
+                INSERT INTO listings (key, title, price, description, location, url, ts)
                 VALUES %s
                 ON CONFLICT (key) DO UPDATE SET
                   title = EXCLUDED.title,
                   price = EXCLUDED.price,
                   description = EXCLUDED.description,
                   location = EXCLUDED.location,
+                  url = EXCLUDED.url,
                   ts = EXCLUDED.ts
                 """,
                 rows,
@@ -174,7 +179,7 @@ def search(
         params.append(cutoff)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     sql = (
-        "SELECT l.id, l.title, l.price, l.description, l.location, l.ts, li.data as first_image "
+        "SELECT l.id, l.title, l.price, l.description, l.location, l.url, l.ts, li.data as first_image "
         "FROM listings l "
         "LEFT JOIN LATERAL (SELECT data FROM listing_images WHERE listing_id=l.id ORDER BY idx ASC LIMIT 1) li ON TRUE "
         "LEFT JOIN LATERAL (SELECT COUNT(*) AS cnt FROM listing_images WHERE listing_id=l.id) ic ON TRUE "
@@ -189,7 +194,7 @@ def search(
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            for _id, title, price, desc, location, ts, first_image in cur.fetchall():
+            for _id, title, price, desc, location, url, ts, first_image in cur.fetchall():
                 images_list: List[bytes] = [bytes(first_image)] if first_image is not None else []
                 results.append(
                     Listing(
@@ -198,6 +203,7 @@ def search(
                         description=desc,
                         images=images_list,
                         location=location,
+                        url=url,
                         timestamp=ts,
                     )
                 )

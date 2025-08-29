@@ -6,7 +6,13 @@
         {% if r.image_src is defined and r.image_src %}
           <img src="{{ r.image_src }}" alt="" />
         {% endif %}
-        <div class="title">{{ l.title }}</div>
+        <div class="title">
+          {% if l.url %}
+            <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a>
+          {% else %}
+            {{ l.title }}
+          {% endif %}
+        </div>
         <div class="price">{{ '%.2f'|format(l.price) }} DKK</div>
         {% if r.score is defined %}
           <div>Score: {{ '%.2f'|format(r.score) }}</div>
