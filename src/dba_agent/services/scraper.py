@@ -103,18 +103,30 @@ class ListingSpider(scrapy.Spider):
         for card in response.css("div.listing, article.sf-search-ad, article:has(.sf-search-ad-link)"):
             yielded = True
             image_urls = card.css("img::attr(src)").getall()
-            href = card.css("a::attr(href)").get()
+            href = card.css("a.sf-search-ad-link::attr(href), h2 a::attr(href), a[href*='/item/']::attr(href)").get()
             url = response.urljoin(href) if href else None
             classes = (card.attrib.get("class") or "")
             badge_text = " ".join(card.css(".badge--info, .badge--positionTL, span::text").getall())
             is_ad = ("sf-search-ad" in classes) or ("Betalt placering" in badge_text)
+            # Title: prefer anchor text within H2; fallback to any H2 text
+            title_parts = [t.strip() for t in card.css("h2 a::text, h2::text, .sf-search-ad-link::text").getall() if t and t.strip()]
+            title_val = " ".join(title_parts)
+            # Location: try known layout with text-xs class; fallback selector
+            loc_val = None
+            for t in card.css("div.text-xs span::text, span.whitespace-nowrap::text").getall():
+                tt = (t or "").strip()
+                if tt and not any(ch.isdigit() for ch in tt) and "kr" not in tt.lower():
+                    loc_val = tt
+                    break
+            if not loc_val:
+                loc_val = card.css("span.location::text").get()
             item = Listing(
-                title=card.css("h2::text").get(default="").strip(),
+                title=title_val,
                 price=self._parse_price(card),
-                description=card.css("p.description::text").get(),
+                description=card.css("p.description::text, .description::text").get(),
                 images=[],
                 image_urls=[response.urljoin(u) for u in image_urls],
-                location=card.css("span.location::text").get(),
+                location=loc_val,
                 url=url,
                 timestamp=datetime.now(timezone.utc),
                 is_ad=is_ad,
