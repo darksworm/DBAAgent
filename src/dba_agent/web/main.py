@@ -275,10 +275,10 @@ def start_scrape(
         })
 
     urls = [u for u in start_urls.replace(",", " ").split() if u]
-    if worker_count <= 1 or len(urls) <= 1:
-        import uuid as _uuid
+    import uuid as _uuid
     group_id = _uuid.uuid4().hex[:6]
-    jobs.start(
+    if worker_count <= 1 or len(urls) <= 1:
+        jobs.start(
             start_urls,
             max_pages=max_pages,
             newest_first=bool(newest_first),
