@@ -57,6 +57,8 @@ def init_schema() -> None:
                   urls TEXT NOT NULL,
                   cadence_minutes INTEGER NOT NULL,
                   max_pages INTEGER,
+                  workers INTEGER,
+                  concurrency INTEGER,
                   newest_first BOOLEAN NOT NULL DEFAULT TRUE,
                   enabled BOOLEAN NOT NULL DEFAULT TRUE,
                   last_run TIMESTAMPTZ,
@@ -67,7 +69,9 @@ def init_schema() -> None:
             # Backfill column if migrating
             cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS url TEXT;")
             cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS image_urls JSONB;")
-            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS last_pub_ts TIMESTAMPTZ;")
+            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS last_pub_ts TIMESTAMPTZ;
+            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS workers INTEGER;")
+            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS concurrency INTEGER;")")
         conn.commit()
 
 
@@ -268,16 +272,18 @@ def schedule_create(
     cadence_minutes: int,
     max_pages: Optional[int],
     newest_first: bool,
+    workers: Optional[int] = None,
+    concurrency: Optional[int] = None,
 ) -> int:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO scrape_schedules (name, urls, cadence_minutes, max_pages, newest_first, enabled)
-                VALUES (%s, %s, %s, %s, %s, TRUE)
+                INSERT INTO scrape_schedules (name, urls, cadence_minutes, max_pages, workers, concurrency, newest_first, enabled)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE)
                 RETURNING id
                 """,
-                (name, urls, cadence_minutes, max_pages, newest_first),
+                (name, urls, cadence_minutes, max_pages, workers, concurrency, newest_first),
             )
             sid = cur.fetchone()[0]
         conn.commit()
@@ -288,7 +294,7 @@ def schedule_list() -> List[dict]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run, last_pub_ts FROM scrape_schedules ORDER BY id DESC"
+                "SELECT id, name, urls, cadence_minutes, max_pages, workers, concurrency, newest_first, enabled, last_run, last_pub_ts FROM scrape_schedules ORDER BY id DESC"
             )
             rows = cur.fetchall()
     out = []
@@ -300,10 +306,12 @@ def schedule_list() -> List[dict]:
                 "urls": r[2],
                 "cadence_minutes": r[3],
                 "max_pages": r[4],
-                "newest_first": bool(r[5]),
-                "enabled": bool(r[6]),
-                "last_run": r[7],
-                "last_pub_ts": r[8],
+                "workers": r[5],
+                "concurrency": r[6],
+                "newest_first": bool(r[7]),
+                "enabled": bool(r[8]),
+                "last_run": r[9],
+                "last_pub_ts": r[10],
             }
         )
     return out
@@ -336,7 +344,7 @@ def schedules_due(now: Optional[datetime] = None) -> List[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, urls, cadence_minutes, max_pages, newest_first, enabled, last_run, last_pub_ts
+                SELECT id, name, urls, cadence_minutes, max_pages, workers, concurrency, newest_first, enabled, last_run, last_pub_ts
                 FROM scrape_schedules
                 WHERE enabled = TRUE
                   AND (last_run IS NULL OR last_run <= %s - (cadence_minutes || ' minutes')::interval)
@@ -353,10 +361,12 @@ def schedules_due(now: Optional[datetime] = None) -> List[dict]:
                 "urls": r[2],
                 "cadence_minutes": r[3],
                 "max_pages": r[4],
-                "newest_first": bool(r[5]),
-                "enabled": bool(r[6]),
-                "last_run": r[7],
-                "last_pub_ts": r[8],
+                "workers": r[5],
+                "concurrency": r[6],
+                "newest_first": bool(r[7]),
+                "enabled": bool(r[8]),
+                "last_run": r[9],
+                "last_pub_ts": r[10],
             }
         )
     return out

@@ -13,6 +13,12 @@
     <label>Pages
       <input type="number" name="pages" min="1" placeholder="3" />
     </label>
+    <label>Workers
+      <input type="number" name="workers" min="1" placeholder="2" />
+    </label>
+    <label>Concurrency
+      <input type="number" name="concurrency" min="1" placeholder="16" />
+    </label>
     <label>
       <input type="checkbox" name="newest_first" value="1" checked /> Newest first
     </label>
@@ -23,7 +29,7 @@
       <ul>
         {% for s in schedules %}
           <li style="margin:.25rem 0;">
-            <strong>{{ s.name }}</strong> — every {{ s.cadence_minutes }}m — pages: {{ s.max_pages if s.max_pages else '∞' }} — newest: {{ 'yes' if s.newest_first else 'no' }} — last: {{ s.last_run if s.last_run else 'never' }}
+            <strong>{{ s.name }}</strong> — every {{ s.cadence_minutes }}m — pages: {{ s.max_pages if s.max_pages else '∞' }} — workers: {{ s.workers if s.workers else 1 }} — conc: {{ s.concurrency if s.concurrency else 'default' }} — newest: {{ 'yes' if s.newest_first else 'no' }} — last: {{ s.last_run if s.last_run else 'never' }} — watermark: {{ s.last_pub_ts if s.last_pub_ts else 'none' }}
             <form hx-post="/schedules/run" hx-target="#schedules" hx-swap="innerHTML" style="display:inline">
               <input type="hidden" name="sid" value="{{ s.id }}" />
               <button type="submit">Run now</button>
