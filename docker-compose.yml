@@ -16,10 +16,13 @@ services:
     command: tail -f /dev/null
     environment:
       PYTHONPATH: /app/src
+      DB_URL: postgresql://dba:dba@db:5432/dba
     depends_on:
       - db
     volumes:
       - .:/app
+    ports:
+      - "8000:8000"
 
 volumes:
   pgdata:

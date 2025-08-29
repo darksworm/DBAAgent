@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Optional
+import os
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
@@ -9,6 +10,8 @@ from fastapi.templating import Jinja2Templates
 
 from dba_agent.models import Listing
 from dba_agent.filters import FilterConfig, FilterEngine
+from dba_agent.repositories import __init__ as repo_init  # type: ignore
+from dba_agent.repositories.postgres import init_schema, search as db_search, upsert_many
 
 
 app = FastAPI(title="DBA Deal-Finding")
@@ -35,6 +38,15 @@ def load_sample_listings() -> List[Listing]:
         return []
 
 
+@app.on_event("startup")
+def on_startup() -> None:
+    try:
+        init_schema()
+    except Exception:
+        # DB may not be up; UI still works with file fallback
+        pass
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     cfg = FilterConfig()
@@ -56,11 +68,30 @@ def search(
         min_price=min_price, max_price=max_price, include_keywords=include
     )
     engine = FilterEngine(cfg)
-    listings = load_sample_listings()
+    listings: List[Listing]
+    try:
+        listings = db_search(include, min_price, max_price, limit=100)
+    except Exception:
+        # Fallback to local file if DB not reachable
+        file_items = load_sample_listings()
+        results = [l for l in file_items if engine.apply(l).included]
+        return templates.TemplateResponse(
+            "partials/results.html",
+            {"request": request, "results": results, "config": cfg},
+        )
     results = [l for l in listings if engine.apply(l).included]
-    results = results[:100]
     return templates.TemplateResponse(
         "partials/results.html",
         {"request": request, "results": results, "config": cfg},
     )
 
+
+@app.post("/ingest", response_class=HTMLResponse)
+def ingest_from_file(request: Request) -> HTMLResponse:
+    items = load_sample_listings()
+    try:
+        inserted = upsert_many(items)
+        msg = f"Ingested {inserted} listings into DB."
+    except Exception as e:
+        msg = f"DB ingest failed: {e}"
+    return HTMLResponse(f"<pre>{msg}</pre>")
