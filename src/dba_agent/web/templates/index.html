@@ -18,6 +18,21 @@
       .price { color: #0b6cff; font-weight: 600; }
       img { width: 100%; height: 140px; object-fit: cover; border-radius: 6px; background: #fafafa; }
     </style>
+    <script>
+      // Drop empty params from HTMX requests so you only send what you fill
+      document.addEventListener('htmx:configRequest', function (e) {
+        try {
+          if (e.detail && e.detail.verb === 'get' && (e.detail.path || '').startsWith('/search')) {
+            const params = e.detail.parameters || {};
+            for (const k of Object.keys(params)) {
+              if (params[k] === '' || params[k] === null) {
+                delete params[k];
+              }
+            }
+          }
+        } catch (_) {}
+      });
+    </script>
   </head>
   <body>
     <h1>DBA Deals</h1>
