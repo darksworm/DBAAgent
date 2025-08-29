@@ -7,7 +7,6 @@
     <form hx-post="/scrape/stop" hx-trigger="click" hx-vals='{"job_id": "{{ job.id }}"}' hx-swap="none" style="display:inline">
       <button type="submit" style="background:#f33">Stop</button>
     </form>
-    <div hx-get="/scrape/status?job_id={{ job.id }}" hx-trigger="every 1s" hx-swap="outerHTML"></div>
+    <div hx-get="/scrape/status?job_id={{ job.id }}" hx-trigger="every 1s" hx-target="#scrape-status" hx-swap="innerHTML"></div>
   {% endif %}
 </div>
-
