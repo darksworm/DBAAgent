@@ -22,6 +22,15 @@ The output file contains newline-delimited JSON representations of each
 `Listing` with fields for title, price, description, images, location and
 timestamp.
 
+## Start Scraping From The Web UI
+
+You can trigger a scrape directly from the UI and watch progress live. The app
+streams updates via SSE and batches DB inserts so results appear quickly.
+
+1. Start the stack and web app (see Docker instructions below), then open http://localhost:8000
+2. Enter one or more start URLs and click "Start".
+3. The status panel shows inserted counts and errors; the results grid refreshes automatically as new items are ingested.
+
 ## Running Locally with Docker
 
 The repository includes a Docker setup for local development. It provides a Postgres database and an application container with all Python dependencies.

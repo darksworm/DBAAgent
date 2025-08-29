@@ -23,6 +23,9 @@ class ListingSpider(scrapy.Spider):
         "DOWNLOAD_DELAY": 0.5,
         "AUTOTHROTTLE_ENABLED": True,
         "RETRY_TIMES": 3,
+        # Keep console output clean: don't dump full items with images
+        "LOG_LEVEL": "INFO",
+        "LOG_FORMATTER": "dba_agent.utils.log.NoItemLogFormatter",
         # Ensure Pydantic models are converted to JSON-serializable dicts
         "ITEM_PIPELINES": {"dba_agent.utils.pipelines.JsonifyPydantic": 100},
     }

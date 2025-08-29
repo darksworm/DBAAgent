@@ -62,21 +62,21 @@ def listing_key(l: Listing) -> str:
 
 
 def upsert_many(items: Iterable[Listing]) -> int:
-    rows = []
+    # De-duplicate by key to avoid ON CONFLICT affecting the same row twice
+    rows_by_key: Dict[str, Tuple[str, str, float, Optional[str], Optional[str], object]] = {}
     images_by_key: Dict[str, List[bytes]] = {}
     for l in items:
         k = listing_key(l)
-        rows.append(
-            (
-                k,
-                l.title,
-                float(l.price),
-                l.description,
-                l.location,
-                l.timestamp,
-            )
+        rows_by_key[k] = (
+            k,
+            l.title,
+            float(l.price),
+            l.description,
+            l.location,
+            l.timestamp,
         )
         images_by_key[k] = list(getattr(l, "images", []) or [])
+    rows = list(rows_by_key.values())
     if not rows:
         return 0
     with connect() as conn:
@@ -167,9 +167,7 @@ def search(
             if kw:
                 where.append("NOT (LOWER(location) LIKE %s)")
                 params.append(f"%{kw.lower()}%")
-    if min_images is not None:
-        where.append("jsonb_array_length(image_urls) >= %s")
-        params.append(min_images)
+    # Image count handled via lateral join alias `ic` below
     if max_age_days is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
         where.append("ts >= %s")

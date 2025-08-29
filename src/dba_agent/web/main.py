@@ -4,18 +4,23 @@ from pathlib import Path
 from typing import List, Optional
 import os
 
-from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Query, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from dba_agent.models import Listing
 from dba_agent.filters import FilterConfig, FilterEngine
 from dba_agent.repositories import __init__ as repo_init  # type: ignore
 from dba_agent.repositories.postgres import init_schema, search as db_search, upsert_many
+from .jobs import JobManager
+from .events import hub
+import asyncio
+import queue
 
 
 app = FastAPI(title="DBA Deal-Finding")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+jobs = JobManager()
 
 
 def load_sample_listings() -> List[Listing]:
@@ -143,3 +148,48 @@ def ingest_from_file(request: Request) -> HTMLResponse:
     except Exception as e:
         msg = f"DB ingest failed: {e}"
     return HTMLResponse(f"<pre>{msg}</pre>")
+
+
+@app.post("/scrape", response_class=HTMLResponse)
+def start_scrape(request: Request, start_urls: str = Form(...)) -> HTMLResponse:
+    job = jobs.start(start_urls)
+    return templates.TemplateResponse(
+        "partials/scrape_status.html",
+        {"request": request, "job": job},
+    )
+
+
+@app.get("/scrape/status", response_class=HTMLResponse)
+def scrape_status(request: Request, job_id: str) -> HTMLResponse:
+    job = jobs.status(job_id)
+    if not job:
+        return HTMLResponse("<div>Unknown job.</div>", status_code=404)
+    return templates.TemplateResponse(
+        "partials/scrape_status.html",
+        {"request": request, "job": job},
+    )
+
+
+@app.post("/scrape/stop")
+def scrape_stop(job_id: str = Form(...)) -> JSONResponse:
+    ok = jobs.stop(job_id)
+    return JSONResponse({"ok": ok})
+
+
+@app.get("/events")
+async def sse_events() -> StreamingResponse:
+    q: queue.Queue[bytes] = await hub.subscribe()
+
+    async def event_stream():
+        try:
+            while True:
+                payload = await asyncio.get_event_loop().run_in_executor(None, q.get)
+                yield payload
+        except asyncio.CancelledError:
+            # Client disconnected
+            pass
+        finally:
+            await hub.unsubscribe(q)
+
+    headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)

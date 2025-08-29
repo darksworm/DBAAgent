@@ -1,0 +1,13 @@
+{% set done = job.status in ['completed','failed','canceled'] %}
+<div class="card" style="margin:.75rem 0; padding:.75rem; border:1px solid #eee; border-radius:8px;">
+  <div><strong>Job:</strong> {{ job.id }} &mdash; <strong>Status:</strong> {{ job.status }}</div>
+  <div><strong>Inserted:</strong> {{ job.inserted }} &nbsp; <strong>Errors:</strong> {{ job.errors }}{% if job.last_error %} &nbsp; <span style="color:#b00">{{ job.last_error }}</span>{% endif %}</div>
+  <div><strong>Source:</strong> {{ job.start_urls }}</div>
+  {% if not done %}
+    <form hx-post="/scrape/stop" hx-trigger="click" hx-vals='{"job_id": "{{ job.id }}"}' hx-swap="none" style="display:inline">
+      <button type="submit" style="background:#f33">Stop</button>
+    </form>
+    <div hx-get="/scrape/status?job_id={{ job.id }}" hx-trigger="every 1s" hx-swap="outerHTML"></div>
+  {% endif %}
+</div>
+

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DBA Deals</title>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1rem auto; max-width: 960px; padding: 0 1rem; }
       form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
@@ -20,8 +21,19 @@
   </head>
   <body>
     <h1>DBA Deals</h1>
-    <p>Filter locally using a sample exported by the spider (listings.json).</p>
-    <form hx-get="/search" hx-target="#results" hx-swap="innerHTML">
+    <p>Start a scrape and see results quickly. You can also filter locally using a sample exported by the spider (listings.json).</p>
+    <h3>Start Scrape</h3>
+    <form hx-post="/scrape" hx-target="#scrape-status" hx-swap="innerHTML">
+      <label>Start URLs (space or comma separated)
+        <input name="start_urls" type="text" placeholder="https://example.com/page1 https://example.com/page2" required />
+      </label>
+      <button type="submit">Start</button>
+    </form>
+    <div id="scrape-status"></div>
+    <div id="events" hx-ext="sse" hx-sse="connect:/events, trigger:new_results"></div>
+
+    <h3>Search</h3>
+    <form hx-get="/search" hx-target="#results" hx-swap="innerHTML" hx-trigger="submit, new_results from:#events">
       <label>Keywords (include)
         <input name="q" type="text" placeholder="e.g. batavus carbon" />
       </label>
