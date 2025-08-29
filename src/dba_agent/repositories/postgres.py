@@ -5,6 +5,7 @@ import os
 import hashlib
 from contextlib import contextmanager
 from typing import Iterable, List, Optional, Sequence, Tuple
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 import psycopg2.extras
@@ -93,6 +94,11 @@ def upsert_many(items: Iterable[Listing]) -> int:
 
 def search(
     include_keywords: Sequence[str] | None = None,
+    exclude_keywords: Sequence[str] | None = None,
+    location_includes: Sequence[str] | None = None,
+    location_excludes: Sequence[str] | None = None,
+    min_images: Optional[int] = None,
+    max_age_days: Optional[int] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     limit: int = 100,
@@ -111,6 +117,29 @@ def search(
                 where.append("(LOWER(title) LIKE %s OR LOWER(description) LIKE %s)")
                 like = f"%{kw.lower()}%"
                 params.extend([like, like])
+    if exclude_keywords:
+        for kw in exclude_keywords:
+            if kw:
+                where.append("NOT (LOWER(title) LIKE %s OR LOWER(description) LIKE %s)")
+                like = f"%{kw.lower()}%"
+                params.extend([like, like])
+    if location_includes:
+        for kw in location_includes:
+            if kw:
+                where.append("LOWER(location) LIKE %s")
+                params.append(f"%{kw.lower()}%")
+    if location_excludes:
+        for kw in location_excludes:
+            if kw:
+                where.append("NOT (LOWER(location) LIKE %s)")
+                params.append(f"%{kw.lower()}%")
+    if min_images is not None:
+        where.append("jsonb_array_length(image_urls) >= %s")
+        params.append(min_images)
+    if max_age_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        where.append("ts >= %s")
+        params.append(cutoff)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     sql = (
         "SELECT title, price, description, image_urls, location, ts FROM listings"
@@ -138,4 +167,3 @@ def search(
                     )
                 )
     return results
-

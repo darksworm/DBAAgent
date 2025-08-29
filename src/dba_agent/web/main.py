@@ -60,17 +60,42 @@ def index(request: Request) -> HTMLResponse:
 def search(
     request: Request,
     q: Optional[str] = Query(None, description="Space-separated include keywords"),
+    qx: Optional[str] = Query(None, description="Space-separated exclude keywords"),
+    loc: Optional[str] = Query(None, description="Space-separated location include keywords"),
+    locx: Optional[str] = Query(None, description="Space-separated location exclude keywords"),
     min_price: Optional[float] = Query(None),
     max_price: Optional[float] = Query(None),
+    min_images: Optional[int] = Query(None),
+    max_age_days: Optional[int] = Query(None),
 ) -> HTMLResponse:
     include = (q or "").split()
+    exclude = (qx or "").split()
+    loc_inc = (loc or "").split()
+    loc_exc = (locx or "").split()
     cfg = FilterConfig(
-        min_price=min_price, max_price=max_price, include_keywords=include
+        min_price=min_price,
+        max_price=max_price,
+        include_keywords=include,
+        exclude_keywords=exclude,
+        location_includes=loc_inc,
+        location_excludes=loc_exc,
+        min_images=min_images,
+        max_age_days=max_age_days,
     )
     engine = FilterEngine(cfg)
     listings: List[Listing]
     try:
-        listings = db_search(include, min_price, max_price, limit=100)
+        listings = db_search(
+            include_keywords=include,
+            exclude_keywords=exclude,
+            location_includes=loc_inc,
+            location_excludes=loc_exc,
+            min_images=min_images,
+            max_age_days=max_age_days,
+            min_price=min_price,
+            max_price=max_price,
+            limit=100,
+        )
     except Exception:
         # Fallback to local file if DB not reachable
         file_items = load_sample_listings()
@@ -79,10 +104,15 @@ def search(
             "partials/results.html",
             {"request": request, "results": results, "config": cfg},
         )
-    results = [l for l in listings if engine.apply(l).included]
+    # Compute score and filter using engine
+    scored = []
+    for l in listings:
+        fr = engine.apply(l)
+        if fr.included:
+            scored.append({"item": l, "score": fr.score})
     return templates.TemplateResponse(
         "partials/results.html",
-        {"request": request, "results": results, "config": cfg},
+        {"request": request, "results": scored, "config": cfg},
     )
 
 

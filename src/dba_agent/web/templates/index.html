@@ -25,11 +25,26 @@
       <label>Keywords (include)
         <input name="q" type="text" placeholder="e.g. batavus carbon" />
       </label>
+      <label>Keywords (exclude)
+        <input name="qx" type="text" placeholder="e.g. defekt reservedele" />
+      </label>
+      <label>Location include
+        <input name="loc" type="text" placeholder="e.g. København Aarhus" />
+      </label>
+      <label>Location exclude
+        <input name="locx" type="text" placeholder="e.g. Bornholm" />
+      </label>
       <label>Min price
         <input name="min_price" type="number" step="0.01" />
       </label>
       <label>Max price
         <input name="max_price" type="number" step="0.01" />
+      </label>
+      <label>Min images
+        <input name="min_images" type="number" min="0" />
+      </label>
+      <label>Max age (days)
+        <input name="max_age_days" type="number" min="0" />
       </label>
       <button type="submit">Search</button>
     </form>
@@ -38,4 +53,3 @@
     </div>
   </body>
   </html>
-

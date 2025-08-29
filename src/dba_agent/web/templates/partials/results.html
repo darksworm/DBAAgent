@@ -1,12 +1,16 @@
 {% if results %}
   <div class="grid">
-    {% for l in results %}
+    {% for r in results %}
+      {% set l = r.item if r.item is defined else r %}
       <div class="card">
         {% if l.image_urls %}
           <img src="{{ l.image_urls[0] }}" alt="" />
         {% endif %}
         <div class="title">{{ l.title }}</div>
         <div class="price">{{ '%.2f'|format(l.price) }} DKK</div>
+        {% if r.score is defined %}
+          <div>Score: {{ '%.2f'|format(r.score) }}</div>
+        {% endif %}
         {% if l.description %}
           <div class="desc">{{ l.description }}</div>
         {% endif %}
@@ -16,4 +20,3 @@
 {% else %}
   <p>No results. Export a listings.json with the spider, then search.</p>
 {% endif %}
-
