@@ -69,9 +69,9 @@ def init_schema() -> None:
             # Backfill column if migrating
             cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS url TEXT;")
             cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS image_urls JSONB;")
-            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS last_pub_ts TIMESTAMPTZ;
+            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS last_pub_ts TIMESTAMPTZ;")
             cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS workers INTEGER;")
-            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS concurrency INTEGER;")")
+            cur.execute("ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS concurrency INTEGER;")
         conn.commit()
 
 
