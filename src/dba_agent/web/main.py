@@ -21,6 +21,7 @@ from dba_agent.repositories.postgres import (
     schedule_mark_ran,
     schedules_due,
     recent_listings,
+    schedule_delete,
 )
 from .jobs import JobManager
 from .events import hub
@@ -454,4 +455,14 @@ def recent(request: Request, since: Optional[str] = Query(None), limit: Optional
     return templates.TemplateResponse(
         "partials/recent.html",
         {"request": request, "cards": cards, "since": latest_ts},
+    )
+
+
+@app.post("/schedules/delete", response_class=__import__('fastapi').FastAPI.__annotations__.get('HTMLResponse', HTMLResponse))
+def schedules_delete_view(request: Request, sid: int = Form(...)) -> HTMLResponse:
+    # If a schedule is currently running, keep the job running but remove future runs
+    schedule_delete(int(sid))
+    return templates.TemplateResponse(
+        "partials/schedules.html",
+        {"request": request, "schedules": schedule_list()},
     )

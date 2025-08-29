@@ -391,3 +391,11 @@ def schedule_mark_pub(sid: int, ts: datetime) -> None:
                 (ts, sid),
             )
         conn.commit()
+
+
+def schedule_delete(sid: int) -> None:
+    """Delete a schedule by id."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM scrape_schedules WHERE id=%s", (sid,))
+        conn.commit()
