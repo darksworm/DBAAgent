@@ -1,0 +1,19 @@
+{% if results %}
+  <div class="grid">
+    {% for l in results %}
+      <div class="card">
+        {% if l.image_urls %}
+          <img src="{{ l.image_urls[0] }}" alt="" />
+        {% endif %}
+        <div class="title">{{ l.title }}</div>
+        <div class="price">{{ '%.2f'|format(l.price) }} DKK</div>
+        {% if l.description %}
+          <div class="desc">{{ l.description }}</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p>No results. Export a listings.json with the spider, then search.</p>
+{% endif %}
+

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DBA Deals</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1rem auto; max-width: 960px; padding: 0 1rem; }
+      form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
+      label { display: flex; flex-direction: column; font-size: .9rem; }
+      input[type="text"], input[type="number"] { padding: .4rem .5rem; border: 1px solid #ddd; border-radius: 6px; }
+      button { padding: .5rem .8rem; border: 0; background: #0b6cff; color: white; border-radius: 6px; cursor: pointer; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .75rem; margin-top: 1rem; }
+      .card { border: 1px solid #eee; border-radius: 8px; padding: .5rem; }
+      .title { font-weight: 600; margin: .3rem 0; }
+      .price { color: #0b6cff; font-weight: 600; }
+      img { width: 100%; height: 140px; object-fit: cover; border-radius: 6px; background: #fafafa; }
+    </style>
+  </head>
+  <body>
+    <h1>DBA Deals</h1>
+    <p>Filter locally using a sample exported by the spider (listings.json).</p>
+    <form hx-get="/search" hx-target="#results" hx-swap="innerHTML">
+      <label>Keywords (include)
+        <input name="q" type="text" placeholder="e.g. batavus carbon" />
+      </label>
+      <label>Min price
+        <input name="min_price" type="number" step="0.01" />
+      </label>
+      <label>Max price
+        <input name="max_price" type="number" step="0.01" />
+      </label>
+      <button type="submit">Search</button>
+    </form>
+    <div id="results">
+      {% include 'partials/results.html' %}
+    </div>
+  </body>
+  </html>
+
