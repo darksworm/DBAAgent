@@ -41,11 +41,13 @@ class ListingSpider(scrapy.Spider):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
-        # Scrapy passes CLI args as strings. Accept either a string (comma/space-separated)
-        # or an iterable of strings for start URLs.
+        # Scrapy passes CLI args as strings. Accept either a string
+        # (comma/space-separated) or an iterable of strings for start URLs.
         parsed: list[str] = []
         if isinstance(start_urls, str):
-            parts = re.split(r"[\s,]+", start_urls.strip()) if start_urls.strip() else []
+            parts = (
+                re.split(r"[\s,]+", start_urls.strip()) if start_urls.strip() else []
+            )
             parsed = [p for p in parts if p]
         elif start_urls is not None:
             parsed = list(start_urls)
@@ -58,26 +60,47 @@ class ListingSpider(scrapy.Spider):
         self._pages_seen = 1
         # Control whether to fetch first image per listing during scrape
         if isinstance(fetch_images, str):
-            self._fetch_images = fetch_images not in ("0", "false", "False", "no", "None", "")
+            self._fetch_images = fetch_images not in (
+                "0",
+                "false",
+                "False",
+                "no",
+                "None",
+                "",
+            )
         else:
-            self._fetch_images = bool(fetch_images) if fetch_images is not None else False
+            self._fetch_images = (
+                bool(fetch_images) if fetch_images is not None else False
+            )
         # Optional cutoff timestamp for publish date; if items are sorted newest-first,
         # we can stop pagination as soon as we encounter older items only.
         from datetime import datetime
+
         self._stop_before: Optional[datetime] = None
         if stop_before_ts:
             try:
-                s = stop_before_ts.rstrip('Z')
+                s = stop_before_ts.rstrip("Z")
                 self._stop_before = datetime.fromisoformat(s)
             except Exception:
                 self._stop_before = None
         # Optional boundary stop when encountering already-known items (by DB key)
         if isinstance(stop_on_known, str):
-            self._stop_on_known = stop_on_known not in ("0", "false", "False", "no", "None", "")
+            self._stop_on_known = stop_on_known not in (
+                "0",
+                "false",
+                "False",
+                "no",
+                "None",
+                "",
+            )
         else:
-            self._stop_on_known = bool(stop_on_known) if stop_on_known is not None else False
+            self._stop_on_known = (
+                bool(stop_on_known) if stop_on_known is not None else False
+            )
         try:
-            self._known_threshold = int(known_threshold) if known_threshold is not None else 1
+            self._known_threshold = (
+                int(known_threshold) if known_threshold is not None else 1
+            )
         except Exception:
             self._known_threshold = 1
         self._known_seen = 0
@@ -100,20 +123,35 @@ class ListingSpider(scrapy.Spider):
 
         seen_older = False
         seen_known_boundary = False
-        for card in response.css("div.listing, article.sf-search-ad, article:has(.sf-search-ad-link)"):
+        for card in response.css(
+            "div.listing, article.sf-search-ad, article:has(.sf-search-ad-link)"
+        ):
             yielded = True
             image_urls = card.css("img::attr(src)").getall()
-            href = card.css("a.sf-search-ad-link::attr(href), h2 a::attr(href), a[href*='/item/']::attr(href)").get()
+            href = card.css(
+                "a.sf-search-ad-link::attr(href), h2 a::attr(href), "
+                "a[href*='/item/']::attr(href)"
+            ).get()
             url = response.urljoin(href) if href else None
-            classes = (card.attrib.get("class") or "")
-            badge_text = " ".join(card.css(".badge--info, .badge--positionTL, span::text").getall())
+            classes = card.attrib.get("class") or ""
+            badge_text = " ".join(
+                card.css(".badge--info, .badge--positionTL, span::text").getall()
+            )
             is_ad = ("sf-search-ad" in classes) or ("Betalt placering" in badge_text)
             # Title: prefer anchor text within H2; fallback to any H2 text
-            title_parts = [t.strip() for t in card.css("h2 a::text, h2::text, .sf-search-ad-link::text").getall() if t and t.strip()]
+            title_parts = [
+                t.strip()
+                for t in card.css(
+                    "h2 a::text, h2::text, .sf-search-ad-link::text"
+                ).getall()
+                if t and t.strip()
+            ]
             title_val = " ".join(title_parts)
             # Location: try known layout with text-xs class; fallback selector
             loc_val = None
-            for t in card.css("div.text-xs span::text, span.whitespace-nowrap::text").getall():
+            for t in card.css(
+                "div.text-xs span::text, span.whitespace-nowrap::text"
+            ).getall():
                 tt = (t or "").strip()
                 if tt and not any(ch.isdigit() for ch in tt) and "kr" not in tt.lower():
                     loc_val = tt
@@ -131,19 +169,27 @@ class ListingSpider(scrapy.Spider):
                 timestamp=datetime.now(timezone.utc),
                 is_ad=is_ad,
             )
-            if self._stop_before and (item.timestamp < self._stop_before) and (not is_ad):
+            if (
+                self._stop_before
+                and (item.timestamp < self._stop_before)
+                and (not is_ad)
+            ):
                 seen_older = True
                 continue
             if self._stop_on_known and self._db_cursor is not None:
                 try:
                     k = listing_key(item)
                     if k not in self._known_cache:
-                        self._db_cursor.execute("SELECT 1 FROM listings WHERE key=%s LIMIT 1", (k,))
+                        self._db_cursor.execute(
+                            "SELECT 1 FROM listings WHERE key=%s LIMIT 1", (k,)
+                        )
                         exists = self._db_cursor.fetchone() is not None
                         if exists and (not is_ad):
                             self._known_seen += 1
                             self._known_cache.add(k)
-                            seen_known_boundary = self._known_seen >= self._known_threshold
+                            seen_known_boundary = (
+                                self._known_seen >= self._known_threshold
+                            )
                             continue
                 except Exception:
                     pass
@@ -165,13 +211,13 @@ class ListingSpider(scrapy.Spider):
             idx = text.find('"@type":"ItemList"')
             if idx != -1:
                 # Find the enclosing JSON object by matching braces
-                start = text.rfind('{', 0, idx)
+                start = text.rfind("{", 0, idx)
                 end = start
                 depth = 0
                 for i, ch in enumerate(text[start:], start):
-                    if ch == '{':
+                    if ch == "{":
                         depth += 1
-                    elif ch == '}':
+                    elif ch == "}":
                         depth -= 1
                         if depth == 0:
                             end = i + 1
@@ -198,8 +244,16 @@ class ListingSpider(scrapy.Spider):
                             price = float(price_raw) if price_raw is not None else 0.0
                         except Exception:
                             price = 0.0
-                        desc = prod.get("description") if isinstance(prod.get("description"), str) else None
-                        href = prod.get("url") if isinstance(prod.get("url"), str) else None
+                        desc = (
+                            prod.get("description")
+                            if isinstance(prod.get("description"), str)
+                            else None
+                        )
+                        href = (
+                            prod.get("url")
+                            if isinstance(prod.get("url"), str)
+                            else None
+                        )
                         if href and href.startswith("/"):
                             href = response.urljoin(href)
                         imgs = prod.get("image")
@@ -216,7 +270,7 @@ class ListingSpider(scrapy.Spider):
                             val = prod.get(key)
                             if isinstance(val, str):
                                 try:
-                                    ts = datetime.fromisoformat(val.rstrip('Z'))
+                                    ts = datetime.fromisoformat(val.rstrip("Z"))
                                     break
                                 except Exception:
                                     pass
@@ -231,19 +285,28 @@ class ListingSpider(scrapy.Spider):
                             timestamp=ts or datetime.now(timezone.utc),
                             is_ad=False,
                         )
-                        if self._stop_before and (item.timestamp < self._stop_before) and (not is_ad):
+                        if (
+                            self._stop_before
+                            and (item.timestamp < self._stop_before)
+                            and (not is_ad)
+                        ):
                             seen_older = True
                             continue
                         if self._stop_on_known and self._db_cursor is not None:
                             try:
                                 k = listing_key(item)
                                 if k not in self._known_cache:
-                                    self._db_cursor.execute("SELECT 1 FROM listings WHERE key=%s LIMIT 1", (k,))
+                                    self._db_cursor.execute(
+                                        "SELECT 1 FROM listings WHERE key=%s LIMIT 1",
+                                        (k,),
+                                    )
                                     exists = self._db_cursor.fetchone() is not None
                                     if exists:
                                         self._known_seen += 1
                                         self._known_cache.add(k)
-                                        seen_known_boundary = self._known_seen >= self._known_threshold
+                                        seen_known_boundary = (
+                                            self._known_seen >= self._known_threshold
+                                        )
                                         continue
                             except Exception:
                                 pass
@@ -281,17 +344,28 @@ class ListingSpider(scrapy.Spider):
         except Exception:
             pass
         yield item
+
     def _parse_price(self, sel: scrapy.Selector) -> float:
         """Parse a price from mixed markup, handling thousands separators.
 
         Examples: "4.000 kr.", "12 345 kr", "899", "1.299,95"
         """
         try:
-            text = " ".join([t.strip() for t in sel.css("::text").getall() if t and t.strip()])
+            text = " ".join(
+                [t.strip() for t in sel.css("::text").getall() if t and t.strip()]
+            )
             import re as _re
-            m = _re.search(r"(\d{1,3}(?:[\.\s]\d{3})+|\d+)(?:,(\d+))?\s*kr?\.?", text, _re.IGNORECASE)
+
+            m = _re.search(
+                r"(\d{1,3}(?:[\.\s]\d{3})+|\d+)(?:[.,](\d+))?\s*kr?\.?",
+                text,
+                _re.IGNORECASE,
+            )
             if not m:
-                m = _re.search(r"(\d{1,3}(?:[\.\s]\d{3})+|\d+)(?:,(\d+))?", text)
+                m = _re.search(
+                    r"(\d{1,3}(?:[\.\s]\d{3})+|\d+)(?:[.,](\d+))?",
+                    text,
+                )
             if m:
                 intpart = m.group(1)
                 dec = m.group(2) or ""
@@ -301,7 +375,6 @@ class ListingSpider(scrapy.Spider):
         except Exception:
             pass
         return 0.0
-
 
 
 def download_image(url: str) -> bytes | None:

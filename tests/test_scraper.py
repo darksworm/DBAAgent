@@ -39,5 +39,5 @@ def test_listing_spider_parses_listing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(listing, Listing)
     assert listing.title == "Widget"
     assert listing.price == 9.99
-    assert listing.images == [b"imgbytes"]
+    assert listing.image_urls == ["http://example.com/img1.jpg"]
     assert listing.location == "Springfield"

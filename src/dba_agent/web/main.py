@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Optional
-import os
 
 from fastapi import FastAPI, Query, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 
 from dba_agent.models import Listing
 from dba_agent.filters import FilterConfig, FilterEngine
-from dba_agent.repositories import __init__ as repo_init  # type: ignore
 from dba_agent.repositories.postgres import (
     init_schema,
     search as db_search,
@@ -31,6 +30,12 @@ from dba_agent.services.classifier import get_classifier
 
 
 app = FastAPI(title="DBA Deal-Finding")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 jobs = JobManager()
 
@@ -71,30 +76,44 @@ def on_startup() -> None:
         pass
     # Start background scheduler (best-effort)
     try:
+
         async def scheduler_loop() -> None:
             while True:
                 try:
                     due = schedules_due()
                     for s in due:
-                        cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
+                        cutoff = (
+                            s["last_pub_ts"].isoformat()
+                            if s.get("last_pub_ts")
+                            else None
+                        )
                         if jobs.is_schedule_running(int(s["id"])):
                             continue
                         extra_settings: dict[str, object] = {}
                         if s.get("concurrency"):
                             c = int(s["concurrency"]) or 0
                             if c > 0:
-                                extra_settings.update({
-                                    "CONCURRENT_REQUESTS": c,
-                                    "CONCURRENT_REQUESTS_PER_DOMAIN": c,
-                                    "AUTOTHROTTLE_ENABLED": False,
-                                    "DOWNLOAD_DELAY": 0,
-                                })
-                        urls = [u for u in str(s.get("urls") or "").replace(",", " ").split() if u]
+                                extra_settings.update(
+                                    {
+                                        "CONCURRENT_REQUESTS": c,
+                                        "CONCURRENT_REQUESTS_PER_DOMAIN": c,
+                                        "AUTOTHROTTLE_ENABLED": False,
+                                        "DOWNLOAD_DELAY": 0,
+                                    }
+                                )
+                        urls = [
+                            u
+                            for u in str(s.get("urls") or "").replace(",", " ").split()
+                            if u
+                        ]
                         w = int(s.get("workers") or 0)
                         if w and w > 1 and len(urls) > 1:
                             n = max(1, min(w, len(urls)))
                             size = (len(urls) + n - 1) // n
-                            shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
+                            shards = [
+                                " ".join(urls[i : i + size])
+                                for i in range(0, len(urls), size)
+                            ]
                         else:
                             shards = [" ".join(urls)] if urls else []
                         for shard in shards:
@@ -127,13 +146,25 @@ def index(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/api/listings", response_model=List[Listing])
+def api_listings(limit: int = Query(20)) -> List[Listing]:
+    try:
+        return recent_listings(limit=int(limit or 20))
+    except Exception:
+        return []
+
+
 @app.get("/search", response_class=HTMLResponse)
 def search(
     request: Request,
     q: Optional[str] = Query(None, description="Space-separated include keywords"),
     qx: Optional[str] = Query(None, description="Space-separated exclude keywords"),
-    loc: Optional[str] = Query(None, description="Space-separated location include keywords"),
-    locx: Optional[str] = Query(None, description="Space-separated location exclude keywords"),
+    loc: Optional[str] = Query(
+        None, description="Space-separated location include keywords"
+    ),
+    locx: Optional[str] = Query(
+        None, description="Space-separated location exclude keywords"
+    ),
     min_price: Optional[str] = Query(None),
     max_price: Optional[str] = Query(None),
     min_images: Optional[str] = Query(None),
@@ -146,11 +177,13 @@ def search(
             return float(s) if s not in (None, "") else None
         except Exception:
             return None
+
     def _i(s: Optional[str]) -> Optional[int]:
         try:
             return int(s) if s not in (None, "") else None
         except Exception:
             return None
+
     min_price_v = _f(min_price)
     max_price_v = _f(max_price)
     min_images_v = _i(min_images)
@@ -186,7 +219,7 @@ def search(
     except Exception:
         # Fallback to local file if DB not reachable
         file_items = load_sample_listings()
-        results = [l for l in file_items if engine.apply(l).included]
+        results = [item for item in file_items if engine.apply(item).included]
         return templates.TemplateResponse(
             "partials/results.html",
             {"request": request, "results": results, "config": cfg},
@@ -198,19 +231,20 @@ def search(
         engine = FilterEngine(cfg)
 
     import base64
+
     clf = get_classifier(include=include, exclude=exclude) if use_llm else None
     scored = []
-    for l in listings:
-        fr = engine.apply(l)
+    for listing in listings:
+        fr = engine.apply(listing)
         if not fr.included:
             continue
         img_src = None
-        if l.images:
-            b64 = base64.b64encode(l.images[0]).decode("ascii")
+        if listing.images:
+            b64 = base64.b64encode(listing.images[0]).decode("ascii")
             img_src = f"data:image/jpeg;base64,{b64}"
-        elif getattr(l, "image_urls", None):
+        elif getattr(listing, "image_urls", None):
             try:
-                first_url = l.image_urls[0]
+                first_url = listing.image_urls[0]
                 if isinstance(first_url, str) and first_url:
                     img_src = first_url
             except Exception:
@@ -218,14 +252,22 @@ def search(
         llm_score = None
         combined = fr.score
         if clf:
-            text = f"{l.title}\n\n{l.description or ''}"
+            text = f"{listing.title}\n\n{listing.description or ''}"
             try:
                 llm_score = float(clf.score(text).score)
                 combined = 0.5 * combined + 0.5 * llm_score
             except Exception:
                 llm_score = None
                 combined = fr.score
-        scored.append({"item": l, "score": combined, "image_src": img_src, "llm": llm_score, "static": fr.score})
+        scored.append(
+            {
+                "item": listing,
+                "score": combined,
+                "image_src": img_src,
+                "llm": llm_score,
+                "static": fr.score,
+            }
+        )
     return templates.TemplateResponse(
         "partials/results.html",
         {"request": request, "results": scored, "config": cfg},
@@ -250,7 +292,7 @@ def start_scrape(
     newest_first: Optional[bool] = Form(False),
     pages: Optional[str] = Form(None),
     workers: Optional[str] = Form(None),
-    concurrency: Optional[str] = Form(None)
+    concurrency: Optional[str] = Form(None),
 ) -> HTMLResponse:
     try:
         max_pages = int(pages) if pages else None
@@ -267,15 +309,18 @@ def start_scrape(
 
     extra_settings = {}
     if conc and conc > 0:
-        extra_settings.update({
-            "CONCURRENT_REQUESTS": conc,
-            "CONCURRENT_REQUESTS_PER_DOMAIN": conc,
-            "AUTOTHROTTLE_ENABLED": False,
-            "DOWNLOAD_DELAY": 0,
-        })
+        extra_settings.update(
+            {
+                "CONCURRENT_REQUESTS": conc,
+                "CONCURRENT_REQUESTS_PER_DOMAIN": conc,
+                "AUTOTHROTTLE_ENABLED": False,
+                "DOWNLOAD_DELAY": 0,
+            }
+        )
 
     urls = [u for u in start_urls.replace(",", " ").split() if u]
     import uuid as _uuid
+
     group_id = _uuid.uuid4().hex[:6]
     if worker_count <= 1 or len(urls) <= 1:
         jobs.start(
@@ -342,7 +387,15 @@ def schedules_create_view(
     max_pages = int(pages) if pages else None
     w = int(workers) if workers else None
     c = int(concurrency) if concurrency else None
-    schedule_create(name=name, urls=urls, cadence_minutes=int(cadence_minutes), max_pages=max_pages, newest_first=bool(newest_first), workers=w, concurrency=c)
+    schedule_create(
+        name=name,
+        urls=urls,
+        cadence_minutes=int(cadence_minutes),
+        max_pages=max_pages,
+        newest_first=bool(newest_first),
+        workers=w,
+        concurrency=c,
+    )
     return templates.TemplateResponse(
         "partials/schedules.html",
         {"request": request, "schedules": schedule_list()},
@@ -358,7 +411,9 @@ def schedules_view(request: Request) -> HTMLResponse:
 
 
 @app.post("/schedules/toggle", response_class=HTMLResponse)
-def schedules_toggle_view(request: Request, sid: int = Form(...), enabled: bool = Form(...)) -> HTMLResponse:
+def schedules_toggle_view(
+    request: Request, sid: int = Form(...), enabled: bool = Form(...)
+) -> HTMLResponse:
     schedule_toggle(int(sid), bool(enabled))
     return templates.TemplateResponse(
         "partials/schedules.html",
@@ -380,18 +435,22 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
             if s.get("concurrency"):
                 c = int(s["concurrency"]) or 0
                 if c > 0:
-                    extra_settings.update({
-                        "CONCURRENT_REQUESTS": c,
-                        "CONCURRENT_REQUESTS_PER_DOMAIN": c,
-                        "AUTOTHROTTLE_ENABLED": False,
-                        "DOWNLOAD_DELAY": 0,
-                    })
+                    extra_settings.update(
+                        {
+                            "CONCURRENT_REQUESTS": c,
+                            "CONCURRENT_REQUESTS_PER_DOMAIN": c,
+                            "AUTOTHROTTLE_ENABLED": False,
+                            "DOWNLOAD_DELAY": 0,
+                        }
+                    )
             urls = [u for u in str(s.get("urls") or "").replace(",", " ").split() if u]
             w = int(s.get("workers") or 0)
             if w and w > 1 and len(urls) > 1:
                 n = max(1, min(w, len(urls)))
                 size = (len(urls) + n - 1) // n
-                shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
+                shards = [
+                    " ".join(urls[i : i + size]) for i in range(0, len(urls), size)
+                ]
             else:
                 shards = [" ".join(urls)] if urls else []
             for shard in shards:
@@ -429,10 +488,19 @@ async def sse_events() -> StreamingResponse:
             await hub.unsubscribe(q)
 
     headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
-    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+    return StreamingResponse(
+        event_stream(), media_type="text/event-stream", headers=headers
+    )
+
+
 @app.get("/recent", response_class=HTMLResponse)
-def recent(request: Request, since: Optional[str] = Query(None), limit: Optional[int] = Query(12)) -> HTMLResponse:
+def recent(
+    request: Request,
+    since: Optional[str] = Query(None),
+    limit: Optional[int] = Query(12),
+) -> HTMLResponse:
     from datetime import datetime
+
     since_dt: Optional[datetime] = None
     if since:
         try:
@@ -442,23 +510,31 @@ def recent(request: Request, since: Optional[str] = Query(None), limit: Optional
             since_dt = None
     items = recent_listings(since=since_dt, limit=int(limit or 12))
     import base64
+
     cards = []
     latest_ts = since or ""
-    for l in items:
+    for listing in items:
         img_src = None
-        if l.images:
-            img_src = f"data:image/jpeg;base64,{base64.b64encode(l.images[0]).decode('ascii')}"
-        ts_iso = l.timestamp.isoformat()
+        if listing.images:
+            img = listing.images[0]
+            b64_img = base64.b64encode(img).decode("ascii")
+            img_src = f"data:image/jpeg;base64,{b64_img}"
+        ts_iso = listing.timestamp.isoformat()
         if not latest_ts or ts_iso > latest_ts:
             latest_ts = ts_iso
-        cards.append({"item": l, "image_src": img_src})
+        cards.append({"item": listing, "image_src": img_src})
     return templates.TemplateResponse(
         "partials/recent.html",
         {"request": request, "cards": cards, "since": latest_ts},
     )
 
 
-@app.post("/schedules/delete", response_class=__import__('fastapi').FastAPI.__annotations__.get('HTMLResponse', HTMLResponse))
+@app.post(
+    "/schedules/delete",
+    response_class=__import__("fastapi").FastAPI.__annotations__.get(
+        "HTMLResponse", HTMLResponse
+    ),
+)
 def schedules_delete_view(request: Request, sid: int = Form(...)) -> HTMLResponse:
     # If a schedule is currently running, keep the job running but remove future runs
     schedule_delete(int(sid))
