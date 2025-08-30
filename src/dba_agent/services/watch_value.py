@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -46,7 +46,7 @@ def eur_to_dkk_rate() -> float:
 
 @dataclass
 class EstimatorConfig:
-    chrono24: Chrono24Config = Chrono24Config()
+    chrono24: Chrono24Config = field(default_factory=Chrono24Config)
     model_path: str = os.environ.get("WATCH_RIDGE_MODEL", "models/watch_ridge.pkl")
     min_points: int = 5
 

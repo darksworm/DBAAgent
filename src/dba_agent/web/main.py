@@ -148,12 +148,7 @@ def index(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/api/listings", response_model=List[Listing])
-def api_listings(limit: int = Query(20)) -> List[Listing]:
-    try:
-        return recent_listings(limit=int(limit or 20))
-    except Exception:
-        return []
+# Deprecated: JSON listings endpoint implemented below returns JSON-safe dicts
 
 
 @app.get("/search", response_class=HTMLResponse)
@@ -400,7 +395,7 @@ def schedules_create_view(
     )
     return templates.TemplateResponse(
         "partials/schedules.html",
-        {"request": request, "schedules": schedule_list()},
+        {"request": request, "schedules": schedule_list(), "running": jobs.running_schedule_ids()},
     )
 
 
@@ -408,7 +403,7 @@ def schedules_create_view(
 def schedules_view(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         "partials/schedules.html",
-        {"request": request, "schedules": schedule_list()},
+        {"request": request, "schedules": schedule_list(), "running": jobs.running_schedule_ids()},
     )
 
 
@@ -419,7 +414,7 @@ def schedules_toggle_view(
     schedule_toggle(int(sid), bool(enabled))
     return templates.TemplateResponse(
         "partials/schedules.html",
-        {"request": request, "schedules": schedule_list()},
+        {"request": request, "schedules": schedule_list(), "running": jobs.running_schedule_ids()},
     )
 
 
@@ -431,7 +426,7 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
             if jobs.is_schedule_running(int(sid)):
                 return templates.TemplateResponse(
                     "partials/schedules.html",
-                    {"request": request, "schedules": schedule_list()},
+                    {"request": request, "schedules": schedule_list(), "running": jobs.running_schedule_ids()},
                 )
             extra_settings: dict[str, object] = {}
             if s.get("concurrency"):
@@ -470,7 +465,7 @@ def schedules_run_now(request: Request, sid: int = Form(...)) -> HTMLResponse:
             break
     return templates.TemplateResponse(
         "partials/schedules.html",
-        {"request": request, "schedules": schedule_list()},
+        {"request": request, "schedules": schedule_list(), "running": jobs.running_schedule_ids()},
     )
 
 
@@ -531,18 +526,69 @@ def recent(
     )
 
 
-@app.post(
-    "/schedules/delete",
-    response_class=__import__("fastapi").FastAPI.__annotations__.get(
-        "HTMLResponse", HTMLResponse
-    ),
-)
+@app.get("/api/listings")
+def api_listings(
+    q: Optional[str] = Query(None),
+    qx: Optional[str] = Query(None),
+    loc: Optional[str] = Query(None),
+    locx: Optional[str] = Query(None),
+    min_price: Optional[float] = Query(None),
+    max_price: Optional[float] = Query(None),
+    min_images: Optional[int] = Query(None),
+    max_age_days: Optional[int] = Query(None),
+    limit: int = Query(50),
+) -> JSONResponse:
+    include = (q or "").split()
+    exclude = (qx or "").split()
+    loc_inc = (loc or "").split()
+    loc_exc = (locx or "").split()
+    try:
+        items = db_search(
+            include_keywords=include,
+            exclude_keywords=exclude,
+            location_includes=loc_inc,
+            location_excludes=loc_exc,
+            min_images=min_images,
+            max_age_days=max_age_days,
+            min_price=min_price,
+            max_price=max_price,
+            limit=limit,
+        )
+    except Exception:
+        items = recent_listings(limit=limit)
+    import base64
+    out = []
+    for l in items:
+        img_src = None
+        if getattr(l, "images", None):
+            try:
+                img_src = f"data:image/jpeg;base64,{base64.b64encode(l.images[0]).decode('ascii')}"
+            except Exception:
+                img_src = None
+        if not img_src:
+            urls = getattr(l, "image_urls", None) or []
+            if urls:
+                img_src = urls[0]
+        out.append(
+            {
+                "title": l.title,
+                "price": float(l.price),
+                "description": l.description,
+                "location": l.location,
+                "url": getattr(l, "url", None),
+                "image_src": img_src,
+            }
+        )
+    return JSONResponse(out)
+
+
+@app.post("/schedules/delete", response_class=HTMLResponse)
 def schedules_delete_view(request: Request, sid: int = Form(...)) -> HTMLResponse:
     # If a schedule is currently running, keep the job running but remove future runs
     schedule_delete(int(sid))
     return templates.TemplateResponse(
         "partials/schedules.html",
-        {"request": request, "schedules": schedule_list()},
+        {"request": request, "schedules": schedule_list(), "running": jobs.running_schedule_ids()},
     )
 
 @app.post("/api/watch/value")
@@ -557,13 +603,158 @@ async def api_watch_value(payload: dict) -> JSONResponse:
     tag = watch_value.tag(score)
     from dba_agent.services.watch_value import normalize_model
 
-    return JSONResponse(
-        {
-            "model": normalize_model(title).upper(),
-            "estimated_resale_dkk": round(est, 2),
-            "listed_price_dkk": round(price_dkk, 2),
-            "deal_score": round(score, 4) if score is not None else None,
-            "tag": tag,
-        }
+# ---------- JSON APIs for React Frontend ----------
+@app.get("/api/jobs/groups")
+def api_job_groups() -> JSONResponse:
+    return JSONResponse(jobs.list_groups())
+
+
+@app.post("/api/scrape/stop_group")
+def api_stop_group(group_id: str) -> JSONResponse:
+    n = jobs.stop_group(group_id)
+    return JSONResponse({"ok": True, "stopped": n})
+
+
+@app.post("/api/scrape/start")
+def api_scrape_start(
+    start_urls: str,
+    newest_first: Optional[bool] = True,
+    pages: Optional[int] = None,
+    workers: Optional[int] = 1,
+    concurrency: Optional[int] = None,
+) -> JSONResponse:
+    extra_settings: dict[str, object] = {}
+    if concurrency and concurrency > 0:
+        extra_settings.update(
+            {
+                "CONCURRENT_REQUESTS": concurrency,
+                "CONCURRENT_REQUESTS_PER_DOMAIN": concurrency,
+                "AUTOTHROTTLE_ENABLED": False,
+                "DOWNLOAD_DELAY": 0,
+            }
+        )
+    import uuid as _uuid
+
+    group_id = _uuid.uuid4().hex[:6]
+    urls = [u for u in start_urls.replace(",", " ").split() if u]
+    if (workers or 1) <= 1 or len(urls) <= 1:
+        jobs.start(
+            start_urls,
+            max_pages=pages,
+            newest_first=bool(newest_first),
+            settings=extra_settings or None,
+            group_id=group_id,
+        )
+    else:
+        n = max(1, min(int(workers or 1), len(urls)))
+        size = (len(urls) + n - 1) // n
+        shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
+        for shard in shards:
+            jobs.start(
+                shard,
+                max_pages=pages,
+                newest_first=bool(newest_first),
+                settings=extra_settings or None,
+                group_id=group_id,
+            )
+    return JSONResponse({"ok": True, "group_id": group_id, "groups": jobs.list_groups()})
+
+
+@app.get("/api/schedules")
+def api_schedules() -> JSONResponse:
+    def _to_json_safe(x: dict) -> dict:
+        y = dict(x)
+        for k in ("last_run", "last_pub_ts"):
+            v = y.get(k)
+            if v is not None:
+                try:
+                    y[k] = v.isoformat()
+                except Exception:
+                    y[k] = str(v)
+        return y
+    raw = schedule_list()
+    safe = [_to_json_safe(s) for s in raw]
+    return JSONResponse({"schedules": safe, "running": list(jobs.running_schedule_ids())})
+
+
+@app.post("/api/schedules/create")
+def api_schedules_create(
+    name: str,
+    urls: str,
+    cadence_minutes: int = 1440,
+    pages: Optional[int] = None,
+    workers: Optional[int] = None,
+    concurrency: Optional[int] = None,
+    newest_first: Optional[bool] = True,
+) -> JSONResponse:
+    schedule_create(
+        name=name,
+        urls=urls,
+        cadence_minutes=int(cadence_minutes),
+        max_pages=pages,
+        newest_first=bool(newest_first),
+        workers=workers,
+        concurrency=concurrency,
     )
+    return JSONResponse({"ok": True, "schedules": schedule_list()})
+
+
+@app.post("/api/schedules/toggle")
+def api_schedules_toggle(sid: int, enabled: bool) -> JSONResponse:
+    schedule_toggle(int(sid), bool(enabled))
+    return JSONResponse({"ok": True, "schedules": schedule_list()})
+
+
+@app.post("/api/schedules/run")
+def api_schedules_run(sid: int) -> JSONResponse:
+    # reuse logic from HTML handler
+    for s in schedule_list():
+        if int(s["id"]) == int(sid):
+            if jobs.is_schedule_running(int(sid)):
+                return JSONResponse({"ok": True, "skipped": True, "reason": "already_running"})
+            cutoff = s["last_pub_ts"].isoformat() if s.get("last_pub_ts") else None
+            extra_settings: dict[str, object] = {}
+            if s.get("concurrency"):
+                c = int(s["concurrency"]) or 0
+                if c > 0:
+                    extra_settings.update(
+                        {
+                            "CONCURRENT_REQUESTS": c,
+                            "CONCURRENT_REQUESTS_PER_DOMAIN": c,
+                            "AUTOTHROTTLE_ENABLED": False,
+                            "DOWNLOAD_DELAY": 0,
+                        }
+                    )
+            urls = [u for u in str(s.get("urls") or "").replace(",", " ").split() if u]
+            w = int(s.get("workers") or 0)
+            import uuid as _uuid
+
+            group_id = f"sch{int(sid)}-" + _uuid.uuid4().hex[:6]
+            if w and w > 1 and len(urls) > 1:
+                n = max(1, min(w, len(urls)))
+                size = (len(urls) + n - 1) // n
+                shards = [" ".join(urls[i : i + size]) for i in range(0, len(urls), size)]
+            else:
+                shards = [" ".join(urls)] if urls else []
+            for shard in shards:
+                jobs.start(
+                    shard,
+                    max_pages=s.get("max_pages"),
+                    newest_first=bool(s.get("newest_first", True)),
+                    stop_before_ts=cutoff,
+                    fetch_images=False,
+                    schedule_id=int(s["id"]),
+                    stop_on_known=False,
+                    settings=extra_settings or None,
+                    group_id=group_id,
+                )
+            schedule_mark_ran(int(sid))
+            break
+    return JSONResponse({"ok": True, "schedules": schedule_list()})
+
+
+@app.post("/api/schedules/delete")
+def api_schedules_delete(sid: int) -> JSONResponse:
+    schedule_delete(int(sid))
+    return JSONResponse({"ok": True, "schedules": schedule_list()})
 

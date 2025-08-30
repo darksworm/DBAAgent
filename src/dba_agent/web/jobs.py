@@ -32,6 +32,7 @@ class ScrapeJob:
     id: str
     start_urls: str
     outfile: Path
+    group_id: Optional[str] = None
     schedule_id: Optional[int] = None
     status: str = "starting"  # starting|running|stopping|completed|failed|canceled
     inserted: int = 0
@@ -249,3 +250,65 @@ class JobManager:
                 for j in self._jobs.values()
                 if j.schedule_id is not None and j.status in ("starting", "running")
             }
+
+
+    def list_groups(self, finished_limit: int = 2) -> list[dict]:
+        """Return JSON-safe grouped job summaries.
+
+        - Includes all running groups and the last N finished groups.
+        - Each group's jobs list is reduced to JSON-friendly dicts.
+        """
+        with self._lock:
+            jobs = list(self._jobs.values())
+        groups: dict[str, list[ScrapeJob]] = {}
+        for j in jobs:
+            gid = j.group_id or j.id
+            groups.setdefault(gid, []).append(j)
+        aggs: list[dict] = []
+        for gid, arr in groups.items():
+            arr.sort(key=lambda x: x.started_at)
+            inserted = sum(j.inserted for j in arr)
+            errors = sum(j.errors for j in arr)
+            if any(j.status in ("starting", "running") for j in arr):
+                status = "running"
+            elif any(j.status == "failed" for j in arr):
+                status = "failed"
+            elif all(j.status == "canceled" for j in arr):
+                status = "canceled"
+            else:
+                status = "completed"
+            rep = arr[0]
+            aggs.append(
+                {
+                    "group_id": gid,
+                    "jobs": [
+                        {
+                            "id": j.id,
+                            "status": j.status,
+                            "inserted": j.inserted,
+                            "errors": j.errors,
+                        }
+                        for j in arr
+                    ],
+                    "status": status,
+                    "inserted": inserted,
+                    "errors": errors,
+                    "start_urls": rep.start_urls,
+                    "count": len(arr),
+                    "started_at": rep.started_at,
+                }
+            )
+        running = [g for g in aggs if g["status"] in ("starting", "running")]
+        finished = [g for g in aggs if g["status"] not in ("starting", "running")]
+        running.sort(key=lambda g: g["started_at"], reverse=True)
+        finished.sort(key=lambda g: g["started_at"], reverse=True)
+        return running + finished[:finished_limit]
+
+    def stop_group(self, group_id: str) -> int:
+        with self._lock:
+            jobs = [j for j in self._jobs.values() if (j.group_id or j.id) == group_id]
+        stopped = 0
+        for j in jobs:
+            if self.stop(j.id):
+                stopped += 1
+        return stopped
